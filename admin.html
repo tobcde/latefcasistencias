@@ -924,7 +924,8 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
         <div class="modal-title" id="m-nombre">Cargando...</div>
         <div class="modal-subtitle" id="m-dni-sub"></div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <button class="btn-editar" id="btn-convertir-profe" onclick="convertirSocioAProfe()" title="Crear profesor con el mismo DNI">&#x1F464; A Profesor</button>
         <button class="btn-editar" id="btn-editar-ficha" onclick="toggleEditarFicha()">&#x270F; Editar</button>
         <button class="modal-close" onclick="cerrarModal()">&#x2715;</button>
       </div>
@@ -4255,6 +4256,65 @@ function cancelarEditProfesor() {
   document.getElementById('btnProfesor').style.background = '';
   document.getElementById('cardProfesor').style.borderColor = '';
   document.getElementById('btnCancelProfesor').style.display = 'none';
+}
+
+// Convertir un socio/jugador en profesor — mantiene el doc en /socios/ intacto
+// (por si el profe también juega). Usa REST signUp para no desloguear al admin.
+function convertirSocioAProfe() {
+  if (!itemSel || !itemSel.dni) return alert('Abrí primero la ficha de un jugador');
+  var dni = itemSel.dni.toString();
+  var f = DB.jugadores[itemSel.arrIdx]; if (!f) return;
+  var nombreCompleto = (f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'');
+  if (DB.profesores.some(function(p){ return (p[5]||'').toString() === dni || (p[1]||'').toString() === dni; })) {
+    return alert('Ya existe un profesor con DNI ' + dni);
+  }
+  sgdConfirm('Convertir a <b>' + nombreCompleto + '</b> (DNI ' + dni + ') en profesor?<br><br>El socio se mantiene en la base. Vas a necesitar definir una contraseña para que pueda entrar en la app de personal.', function() {
+    var pass = prompt('Contraseña para el profesor (mínimo 6 caracteres):', dni);
+    if (!pass) return;
+    if (pass.length < 6) return alert('La contraseña debe tener al menos 6 caracteres');
+    _convertirSocioAProfeConfirmado(dni, nombreCompleto, pass, f);
+  }, 'CONVERTIR');
+}
+
+function _convertirSocioAProfeConfirmado(dni, nombreCompleto, pass, f) {
+  mostrarLoader('Creando profesor...');
+  var apiKey = FIREBASE_CONFIG.apiKey || '';
+  fetch('https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=' + apiKey, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({email: dni + '@sgd.app', password: pass, returnSecureToken: false})
+  })
+  .then(function(r){ return r.json().then(function(d){ return {status:r.status, data:d}; }); })
+  .then(function(res) {
+    var errCode = res.data && res.data.error && res.data.error.message;
+    if (res.status !== 200 && errCode !== 'EMAIL_EXISTS') {
+      throw new Error(errCode || ('HTTP ' + res.status));
+    }
+    var doc = {
+      nombre: nombreCompleto,
+      dni: dni,
+      fechaNac: f[COL.FECHA_NAC] || '',
+      email: f[COL.EMAIL] || '',
+      contrasena: pass,
+      esPrimerLogin: false,
+      telegramUsername: '',
+      telegramChatId: ''
+    };
+    return db.collection('profesores').doc(dni).set(doc);
+  })
+  .then(function() {
+    _contarEscrituras(1);
+    DB.profesores.push([nombreCompleto, dni, f[COL.FECHA_NAC]||'', f[COL.EMAIL]||'', pass, dni, '', '']);
+    renderListProfesores();
+    poblarSelects();
+    poblarTurnosAsist();
+    ocultarLoader();
+    toast('Convertido en profesor. Ya puede entrar a la app de personal.', 'ok');
+  })
+  .catch(function(e) {
+    ocultarLoader();
+    alert('Error al convertir: ' + (e.message || e));
+  });
 }
 
 function guardarProfesor() {
