@@ -126,5 +126,11 @@ service cloud.firestore {
       allow read: if isAdmin() || isProfe();
       allow write: if isAdmin();
     }
+
+    // ── /inscripciones/** ────────────────────────────────────────
+    // Lectura/escritura: solo admin (usado para estado de cuotas)
+    match /inscripciones/{docId} {
+      allow read, write: if isAdmin();
+    }
   }
 }
