@@ -456,7 +456,7 @@ video{width:100%;display:block;}
 
 <!-- TOAST -->
 <div id="toast"></div>
-<div id="version-badge">v1.2</div>
+<div id="version-badge">v1.3</div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- FIREBASE SDK                                                   -->
@@ -723,7 +723,15 @@ function callOCR(imgFront, imgBack, cb, cbErr, intento) {
   .then(function(r){ return r.text(); })
   .then(function(t){
     var d; try{ d=JSON.parse(t); } catch(e){ d={error:'Respuesta inválida'}; }
-    if(d && d.error){ if(cbErr) cbErr(d.error); else toast(d.error,'err'); }
+    if(d && d.error){
+      // Gemini saturado / rate-limited — reintentar con backoff antes de rendirse
+      var transient = /high demand|overload|rate|try again|503|429|unavailable|quota/i.test(d.error);
+      if (transient && intento < 3) {
+        setTimeout(function() { callOCR(imgFront, imgBack, cb, cbErr, intento + 1); }, 3000 * intento);
+        return;
+      }
+      if (cbErr) cbErr(d.error); else toast(d.error,'err');
+    }
     else { if(cb) cb(d); }
   })
   .catch(function(){
@@ -917,7 +925,12 @@ function procesarOCR() {
     });
   }, function(err) {
     ocultarLoader();
-    toast('No se pudo leer el DNI: ' + err + '. Sacá las fotos de nuevo.', 'err');
+    var saturado = /high demand|overload|rate|try again|503|429|unavailable|quota/i.test(err || '');
+    if (saturado) {
+      toast('El servicio de IA está saturado. Esperá 1-2 minutos y tocá Procesar de nuevo.', 'err');
+    } else {
+      toast('No se pudo leer el DNI: ' + err + '. Sacá las fotos de nuevo.', 'err');
+    }
     // NO ir al paso 3 sin DNI — el DNI es requisito de seguridad.
   });
 }
