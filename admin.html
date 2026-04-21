@@ -1518,7 +1518,7 @@ document.body.style.visibility='visible';
 var DB = {jugadores:[], profesores:[], sedes:[], categorias:[], horarios:[], configPagos:[], institucion:{}, actividades:[], inscripciones:[], precios:[]};
 var CUOTAS_DB = {planes:[], cuotas:[]};
 // Flags de carga lazy — evitan recargar datos que ya están en memoria
-var _cargado = {cuotas: false, asistencias: false, inscripciones: false, citaciones: false, inactivos: false};
+var _cargado = {cuotas: false, asistencias: false, inscripciones: false, citaciones: false, inactivos: true};
 
 // ── CONTADOR DE LECTURAS ──────────────────────────────────────────
 var _lecturas = parseInt(sessionStorage.getItem('fs_lecturas')||'0');
