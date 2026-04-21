@@ -456,7 +456,7 @@ video{width:100%;display:block;}
 
 <!-- TOAST -->
 <div id="toast"></div>
-<div id="version-badge">v1.3</div>
+<div id="version-badge">v1.4</div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- FIREBASE SDK                                                   -->
@@ -606,15 +606,33 @@ function cargarCategorias() {
       snap.forEach(function(d) {
         var f = d.data() || {};
         CATEGORIAS.push({
-          id:     d.id,
-          nombre: f.nombre || '',
-          genero: f.genero || 'Mixto',
-          desde:  parseInt(f.edadDesde, 10) || 0,
-          hasta:  parseInt(f.edadHasta, 10) || 0
+          id:          d.id,
+          nombre:      f.nombre || '',
+          genero:      f.genero || 'Mixto',
+          desde:       parseInt(f.edadDesde || f.edadMin, 10) || 0,
+          hasta:       parseInt(f.edadHasta || f.edadMax, 10) || 0,
+          actividades: f.actividades || ''
         });
       });
     })
     .catch(function(e) { console.warn('Sin categorias:', e); });
+}
+
+// Construye el label completo para el dropdown de categorias.
+// Ej: "Sub-12 — Masculino · nac. 2014-2015 · Fútbol"
+function labelCategoria(c) {
+  var partes = [c.nombre || '(sin nombre)'];
+  var meta = [];
+  if (c.genero) meta.push(c.genero);
+  if (c.desde && c.hasta) meta.push('nac. ' + c.desde + '-' + c.hasta);
+  else if (c.desde)       meta.push('desde ' + c.desde);
+  else if (c.hasta)       meta.push('hasta ' + c.hasta);
+  if (c.actividades) {
+    var acts = String(c.actividades).split(/[,;|]/).map(function(s){return s.trim();}).filter(Boolean).join(', ');
+    if (acts) meta.push(acts);
+  }
+  if (meta.length) partes.push(meta.join(' · '));
+  return partes.join(' — ');
 }
 
 // Sugiere categoría en base al año de nacimiento y sexo del OCR.
@@ -1020,7 +1038,7 @@ function inicializarPaso4() {
   catHtml += '<option value="">— Sin categoría —</option>';
   CATEGORIAS.forEach(function(c) {
     var sel = (c.nombre === catActual) ? ' selected' : '';
-    catHtml += '<option value="' + escHtml(c.nombre) + '"' + sel + '>' + escHtml(c.nombre) + '</option>';
+    catHtml += '<option value="' + escHtml(c.nombre) + '"' + sel + '>' + escHtml(labelCategoria(c)) + '</option>';
   });
   catHtml += '</select></div>';
   html += catHtml;
