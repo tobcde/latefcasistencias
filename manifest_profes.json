@@ -3,7 +3,7 @@
   "name": "LATE - Personal",
   "short_name": "Personal",
   "start_url": "/latefcasistencias/profes.html",
-  "scope": "/latefcasistencias/profes.html",
+  "scope": "/latefcasistencias/",
   "display": "standalone",
   "background_color": "#0d1117",
   "theme_color": "#1a7a3c",
