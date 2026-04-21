@@ -853,6 +853,11 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
           <input id="inst-logoUrl" class="inst-input" placeholder="https://drive.google.com/...">
           <p style="font-size:10px;color:var(--muted);margin-top:4px;">Compartir imagen como "cualquiera con el link puede ver"</p>
         </div>
+        <div class="inst-field" style="grid-column:1/-1;">
+          <div class="inst-label">Carpeta de Drive para documentos (DNI, fotos, aptos)</div>
+          <input id="inst-driveFolder" class="inst-input" placeholder="ID de la carpeta de Drive">
+          <p style="font-size:10px;color:var(--muted);margin-top:4px;">En la URL <code>drive.google.com/drive/folders/<b>ID</b></code>, copiá solo el ID. La carpeta debe tener permisos para la cuenta de servicio del GAS.</p>
+        </div>
         <div class="inst-field">
           <div class="inst-label">Color primario <span id="inst-color1-preview" class="color-preview" style="background:#1a7a3c;"></span></div>
           <input id="inst-colorPrimario" class="inst-input" type="color" value="#1a7a3c" oninput="document.getElementById('inst-color1-preview').style.background=this.value; aplicarBrandingPreview(this.value, null);" style="height:40px;padding:2px 8px;">
@@ -4725,7 +4730,7 @@ function aplicarBrandingPreview(primario, secundario) {
 }
 
 function cargarFormInstitucion() {
-  var campos = ['nombre','nombreCorto','logoUrl','colorPrimario','colorSecundario','terminologiaSocio','terminologiaSocios','terminologiaGrupo','terminologiaGrupos','emailRemitente'];
+  var campos = ['nombre','nombreCorto','logoUrl','driveFolder','colorPrimario','colorSecundario','terminologiaSocio','terminologiaSocios','terminologiaGrupo','terminologiaGrupos','emailRemitente'];
   campos.forEach(function(c){
     var el = document.getElementById('inst-' + c); if(!el) return;
     el.value = INST[c] || '';
@@ -4741,6 +4746,7 @@ function guardarInstitucion() {
     nombre: document.getElementById('inst-nombre').value.trim(),
     nombreCorto: document.getElementById('inst-nombreCorto').value.trim(),
     logoUrl: document.getElementById('inst-logoUrl').value.trim(),
+    driveFolder: document.getElementById('inst-driveFolder').value.trim(),
     colorPrimario: document.getElementById('inst-colorPrimario').value,
     colorSecundario: document.getElementById('inst-colorSecundario').value,
     terminologiaSocio: document.getElementById('inst-terminologiaSocio').value.trim() || 'Socio',
