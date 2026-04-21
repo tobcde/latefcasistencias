@@ -1764,7 +1764,7 @@ function refrescarDatos() {
   // Cuotas: 2 meses atrás para capturar históricos del mes anterior
   var corteFecha = new Date(yyyy, hoy.getMonth()-1, 1).toLocaleDateString('sv');
   Promise.all([
-    db.collection('socios').where('activo','==',true).get(),  // ~350
+    db.collection('socios').get(),  // todos — incluye auto-registros pendientes (activo:false)
     db.collection('cuotas').where('fechaPago','>=', corteFecha).get() // ~350-700
   ]).then(function(results) {
     // Socios
@@ -1802,7 +1802,7 @@ function inicializar(passReal) {
     db.collection('config_periodos').get(),             // ~12
     db.collection('config_actividades').get(),          // ~2
     db.collection('config_precios').get(),              // ~8
-    db.collection('socios').where('activo','==',true).get(), // solo activos ~90
+    db.collection('socios').get(), // todos — incluye auto-registros pendientes (activo:false)
     db.collection('inscripciones').get(), // necesario para calcular estado cuota
     // Cuotas del mes actual — filtrar por fechaPago (formato yyyy-MM-dd)
     (function(){
