@@ -1,0 +1,130 @@
+// firestore.rules — SGD Genérico
+// Estas reglas cubren las 3 apps: admin, profes, datos
+// Deployar con: firebase deploy --only firestore:rules
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isAnonymous() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'anonymous';
+    }
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'admin@sgd.app';
+    }
+    function isProfe() {
+      return request.auth != null
+        && request.auth.token.firebase.sign_in_provider == 'password'
+        && !isAdmin();
+    }
+
+    // ── /config/** ────────────────────────────────────────────────
+    // Lectura: cualquier usuario autenticado (incluso anónimo para branding)
+    // Escritura: solo admin
+    match /config/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /config_categorias/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /config_planes/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /config_periodos/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /config_precios/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /config_actividades/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /config_sedes/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /config_deschermanos/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    // ── /socios/{dni} ─────────────────────────────────────────────
+    // Lectura: admin y profes (para listas de asistencia)
+    // Escritura: admin + anónimo (app datos — autoregistro de padres)
+    //   El anónimo solo puede crear/actualizar campos acotados (no puede tocar
+    //   categoriaApp, plan, membresia, etc. — esos son admin-only)
+    match /socios/{dni} {
+      allow read: if isAdmin() || isProfe();
+
+      // Admin: acceso total
+      allow create, update, delete: if isAdmin();
+
+      // Anónimo (app datos): puede crear nuevo socio o actualizar campos
+      // de contacto/archivos — NO puede modificar campos administrativos
+      allow create: if isAnonymous()
+        && !('categoriaApp' in request.resource.data)
+        && !('plan' in request.resource.data)
+        && !('membresia' in request.resource.data)
+        && !('activo' in request.resource.data);
+
+      allow update: if isAnonymous()
+        && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['categoriaApp','plan','membresia','activo','vencimiento','saldo']);
+    }
+
+    // ── /profesores/{dni} ─────────────────────────────────────────
+    // Lectura: admin + el profe propio (por uid)
+    // Update: admin + el profe propio (para cambiar su contraseña)
+    // Create/delete: solo admin
+    match /profesores/{dni} {
+      allow read: if isAdmin()
+        || (isProfe() && request.auth.token.email == dni + '@sgd.app');
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (isProfe() && request.auth.token.email == dni + '@sgd.app'
+            && request.resource.data.diff(resource.data).affectedKeys()
+               .hasOnly(['contrasena']));
+    }
+
+    // ── /horarios/** ─────────────────────────────────────────────
+    // Lectura: profes y admin
+    // Escritura: solo admin
+    match /horarios/{docId} {
+      allow read: if isAdmin() || isProfe();
+      allow write: if isAdmin();
+    }
+
+    // ── /asistencias/** ──────────────────────────────────────────
+    // Lectura/escritura: profes y admin
+    // El profe solo debería poder escribir registros donde el turnoId
+    // pertenezca a sus grupos — esto se valida en el frontend,
+    // la regla Firestore permite a cualquier profe autenticado escribir.
+    match /asistencias/{docId} {
+      allow read, write: if isAdmin() || isProfe();
+    }
+
+    // ── /cuotas/** ────────────────────────────────────────────────
+    // Solo admin
+    match /cuotas/{docId} {
+      allow read, write: if isAdmin();
+    }
+
+    // ── /citaciones/** ───────────────────────────────────────────
+    // Lectura: profes y admin (para ver citaciones)
+    // Escritura: solo admin
+    match /citaciones/{docId} {
+      allow read: if isAdmin() || isProfe();
+      allow write: if isAdmin();
+    }
+  }
+}
