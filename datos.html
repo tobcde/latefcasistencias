@@ -658,7 +658,7 @@ function guardarSocioFirestore(dni, campos, esNuevo) {
       nombre:      (campos.nombre   || '').toUpperCase(),
       email:       campos.email     || '',
       celular:     campos.celular   || '',
-      activo:      true,
+      activo:      false,
       tipoDoc:     'DNI',
       dni:         dniNorm,
       fechaNac:    campos.fechaNac  || '',
