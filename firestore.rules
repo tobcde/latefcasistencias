@@ -69,17 +69,23 @@ service cloud.firestore {
       // Admin: acceso total
       allow create, update, delete: if isAdmin();
 
-      // Anónimo (app datos): puede crear nuevo socio o actualizar campos
-      // de contacto/archivos — NO puede modificar campos administrativos
+      // Anónimo (app datos): puede crear nuevo socio (auto-registro) o
+      // actualizar campos de contacto/archivos.
+      // En el CREATE permitimos categoriaApp (el jugador elige su categoría)
+      // pero forzamos activo=false y campos de pago vacíos — el admin luego
+      // revisa y activa.
       allow create: if isAnonymous()
-        && !('categoriaApp' in request.resource.data)
-        && !('plan' in request.resource.data)
-        && !('membresia' in request.resource.data)
-        && !('activo' in request.resource.data);
+        && (!('activo'      in request.resource.data) || request.resource.data.activo == false)
+        && (!('plan'        in request.resource.data) || request.resource.data.plan == '')
+        && (!('membresia'   in request.resource.data) || request.resource.data.membresia == '')
+        && (!('vencimiento' in request.resource.data) || request.resource.data.vencimiento == '')
+        && (!('saldo'       in request.resource.data) || request.resource.data.saldo == 0);
 
+      // En el UPDATE no puede tocar campos administrativos (plan, membresia, activo, etc.)
+      // pero SÍ puede cambiar su categoriaApp solicitada (el admin la valida).
       allow update: if isAnonymous()
         && !request.resource.data.diff(resource.data).affectedKeys()
-            .hasAny(['categoriaApp','plan','membresia','activo','vencimiento','saldo']);
+            .hasAny(['plan','membresia','activo','vencimiento','saldo']);
     }
 
     // ── /profesores/{dni} ─────────────────────────────────────────
