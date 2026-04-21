@@ -1,7 +1,9 @@
 {
+  "id": "/latefcasistencias/datos",
   "name": "LATE - Datos",
   "short_name": "Datos",
-  "start_url": "/datos.html",
+  "start_url": "/latefcasistencias/datos.html",
+  "scope": "/latefcasistencias/datos.html",
   "display": "standalone",
   "background_color": "#0d1117",
   "theme_color": "#1a7a3c",
