@@ -275,17 +275,6 @@ video{width:100%;display:block;}
     <div class="card-title">&#x1F50D; Verificar datos leídos</div>
     <div id="alert-dni-encontrado" class="alert alert-ok" style="display:none;"></div>
     <div id="alert-dni-no-encontrado" class="alert alert-warn" style="display:none;"></div>
-
-    <!-- Input manual de DNI (por si el OCR fallo o extrajo mal) -->
-    <div style="margin-bottom:12px;">
-      <label style="display:block;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;">Nro. de DNI</label>
-      <div style="display:flex;gap:8px;">
-        <input type="number" id="dni-manual" inputmode="numeric" placeholder="Ingresa tu DNI" style="flex:1;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:10px 12px;border-radius:8px;font-size:14px;">
-        <button class="btn btn-outline" id="btn-rebuscar" onclick="rebuscarDni()" style="min-width:auto;padding:8px 14px;">Buscar</button>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px;">Si el sistema no detecto tu DNI, ingresalo aqui y presiona Buscar.</div>
-    </div>
-
     <div id="card-comp" style="display:none;">
       <table class="comp-table">
         <thead><tr><th>Campo</th><th>Leído del DNI</th><th>Sistema</th></tr></thead>
@@ -467,7 +456,7 @@ video{width:100%;display:block;}
 
 <!-- TOAST -->
 <div id="toast"></div>
-<div id="version-badge">v1.1</div>
+<div id="version-badge">v1.2</div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- FIREBASE SDK                                                   -->
@@ -909,7 +898,13 @@ function quitarImg(n) {
 function procesarOCR() {
   mostrarLoader('Leyendo documento con IA...');
   callOCR(S.imgFront, S.imgBack, function(r) {
-    if (!r.ok || !r.data) { ocultarLoader(); toast('No se pudo leer el documento','err'); return; }
+    if (!r.ok || !r.data || !r.data.dni) {
+      // Sin DNI extraido no podemos buscar en el sistema — el DNI fisico es
+      // el mecanismo de identificacion, NO permitir carga manual (seguridad).
+      ocultarLoader();
+      toast('No se pudo leer el DNI. Sacá las fotos de nuevo con mejor luz y enfoque.', 'err');
+      return;
+    }
     S.ocrData = r.data;
     irPaso(3);
     buscarSocioPorDni(S.ocrData.dni).then(function(result) {
@@ -917,17 +912,13 @@ function procesarOCR() {
       mostrarVerificacion(result);
     }).catch(function(e) {
       ocultarLoader();
-      // Aún si falla la búsqueda, mostramos los datos OCR
       mostrarVerificacion({found: false});
       toast('No se pudo consultar el sistema','err');
     });
   }, function(err) {
     ocultarLoader();
-    toast('Error OCR: ' + err, 'err');
-    // Permitir continuar manual si el OCR falla
-    S.ocrData = {apellido:'', nombre:'', dni:'', fechaNac:'', sexo:'', domicilio:''};
-    irPaso(3);
-    mostrarVerificacion({found: false});
+    toast('No se pudo leer el DNI: ' + err + '. Sacá las fotos de nuevo.', 'err');
+    // NO ir al paso 3 sin DNI — el DNI es requisito de seguridad.
   });
 }
 
@@ -971,26 +962,7 @@ function mostrarVerificacion(result) {
   });
   document.getElementById('comp-tbody').innerHTML = tbody;
   document.getElementById('card-comp').style.display = 'block';
-  var inpDni = document.getElementById('dni-manual');
-  if (inpDni) inpDni.value = ocr.dni || '';
   document.getElementById('btn-sig3').disabled = !ocr.dni;
-}
-
-function rebuscarDni() {
-  var inp = document.getElementById('dni-manual');
-  var dni = (inp && inp.value || '').toString().replace(/\D/g,'').trim();
-  if (!dni || dni.length < 6) { toast('Ingresa un DNI valido', 'err'); return; }
-  if (!S.ocrData) S.ocrData = {};
-  S.ocrData.dni = dni;
-  mostrarLoader('Consultando sistema...');
-  buscarSocioPorDni(dni).then(function(result) {
-    ocultarLoader();
-    mostrarVerificacion(result);
-  }).catch(function(e) {
-    ocultarLoader();
-    mostrarVerificacion({found: false});
-    toast('No se pudo consultar el sistema','err');
-  });
 }
 
 // ══════════════════════════════════════════════════════════════════
