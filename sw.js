@@ -1,25 +1,20 @@
-var CACHE = 'latefc-v2';
-var ASSETS = ['./','./index.html','./manifest.json','./icon-192.png','./icon-512.png','./logo.png'];
-
-self.addEventListener('install', function(e) {
-  e.waitUntil(caches.open(CACHE).then(function(c){ return c.addAll(ASSETS); }));
+const CACHE = 'sgd-v1';
+const ASSETS = ['/', '/admin.html', '/profes.html', '/datos.html'];
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
   self.skipWaiting();
 });
-
-self.addEventListener('activate', function(e) {
-  e.waitUntil(
-    caches.keys().then(function(keys){
-      return Promise.all(keys.filter(function(k){ return k!==CACHE; }).map(function(k){ return caches.delete(k); }));
-    })
-  );
+self.addEventListener('activate', e => {
+  e.waitUntil(caches.keys().then(keys =>
+    Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+  ));
   self.clients.claim();
 });
-
-self.addEventListener('fetch', function(e) {
-  // No cachear llamadas al GAS
-  if (e.request.url.indexOf('script.google.com') >= 0) return;
-  if (e.request.url.indexOf('googleapis.com') >= 0) return;
+self.addEventListener('fetch', e => {
+  if (e.request.method !== 'GET') return;
   e.respondWith(
-    caches.match(e.request).then(function(r){ return r || fetch(e.request); })
+    fetch(e.request)
+      .then(r => { const c = r.clone(); caches.open(CACHE).then(cache => cache.put(e.request, c)); return r; })
+      .catch(() => caches.match(e.request))
   );
 });
