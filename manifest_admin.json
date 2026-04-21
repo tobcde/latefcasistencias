@@ -3,7 +3,7 @@
   "name": "LATE - Admin",
   "short_name": "Admin",
   "start_url": "/latefcasistencias/admin.html",
-  "scope": "/latefcasistencias/admin.html",
+  "scope": "/latefcasistencias/",
   "display": "standalone",
   "background_color": "#0a0d0a",
   "theme_color": "#1a7a3c",
