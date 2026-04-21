@@ -64,7 +64,9 @@ service cloud.firestore {
     //   El anónimo solo puede crear/actualizar campos acotados (no puede tocar
     //   categoriaApp, plan, membresia, etc. — esos son admin-only)
     match /socios/{dni} {
-      allow read: if isAdmin() || isProfe();
+      // Lectura por DNI: admin/profe (listas) y anónimo (auto-registro
+      // app datos — para saber si el DNI ya existe y pre-llenar datos).
+      allow read: if isAdmin() || isProfe() || isAnonymous();
 
       // Admin: acceso total
       allow create, update, delete: if isAdmin();
