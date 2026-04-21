@@ -160,6 +160,17 @@ video{width:100%;display:block;}
 #toast.ok{border-color:var(--primary-border);color:#6de097;}
 #toast.err{border-color:var(--red-border);color:var(--red);}
 
+/* DDJJ SALUD */
+.ddjj-box{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:14px;}
+.ddjj-title{font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;text-transform:uppercase;color:var(--secondary);margin-bottom:10px;letter-spacing:.05em;}
+.ddjj-texto{font-size:12.5px;line-height:1.5;color:var(--text);margin-bottom:12px;}
+.ddjj-check{display:flex;gap:10px;align-items:flex-start;cursor:pointer;user-select:none;padding:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;transition:border-color .2s;}
+.ddjj-check:hover{border-color:var(--primary);}
+.ddjj-check input{width:20px;height:20px;accent-color:var(--primary);margin-top:1px;flex-shrink:0;cursor:pointer;}
+.ddjj-check-label{font-size:13px;line-height:1.45;color:var(--text);}
+.ddjj-check-label b{color:var(--secondary);}
+.ddjj-box.firmada{border-color:var(--primary-border);background:var(--primary-dim);}
+
 /* VERSION BADGE */
 #version-badge{position:fixed;bottom:12px;right:12px;z-index:9999;background:rgba(13,17,23,.85);border:1px solid var(--primary-border);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;font-weight:700;padding:4px 8px;border-radius:6px;letter-spacing:.05em;pointer-events:none;}
 </style>
@@ -328,7 +339,22 @@ video{width:100%;display:block;}
     <div class="card-title">&#x2705; Confirmar envío</div>
     <div id="resumen-datos"></div>
   </div>
-  <button class="btn btn-primary" id="btn-confirmar" onclick="confirmarGuardar()">&#x1F4BE; ENVIAR DATOS</button>
+
+  <!-- DDJJ DE SALUD -->
+  <div class="card">
+    <div class="card-title">&#x1FA7A; Declaración Jurada de Salud</div>
+    <div class="ddjj-box" id="ddjj-box">
+      <div class="ddjj-texto">
+        Declaro bajo juramento que se encuentra en perfecto estado de salud física y/o mental para entrenamiento y/o competencia. Del mismo modo expreso no tener conocimiento a la fecha de ningún impedimento físico o deficiencia en el que pudiera provocarle lesiones y cualquier otro daño corporal como consecuencia de la participación en actividades deportivas.
+      </div>
+      <label class="ddjj-check" for="ddjj-check">
+        <input type="checkbox" id="ddjj-check" onchange="toggleDdjj()">
+        <span class="ddjj-check-label">He leído y <b>acepto la declaración jurada de salud</b>. Confirmo que los datos consignados son verídicos.</span>
+      </label>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" id="btn-confirmar" onclick="confirmarGuardar()" disabled>&#x1F4BE; ENVIAR DATOS</button>
   <button class="btn btn-outline" onclick="irPaso(4)" style="margin-top:10px;">&#x2190; Volver</button>
 </div>
 
@@ -653,7 +679,8 @@ function guardarSocioFirestore(dni, campos, esNuevo) {
       catSecundaria:'',
       contacto1:   campos.contacto1  || '',
       contacto2:   campos.contacto2  || '',
-      medico:      campos.medico     || {}
+      medico:      campos.medico     || {},
+      ddjjSalud:   campos.ddjjSalud  || null
     };
     return ref.set(doc).then(function(){ return {ok: true}; });
   } else {
@@ -670,6 +697,7 @@ function guardarSocioFirestore(dni, campos, esNuevo) {
     if (campos.contacto2)  upd.contacto2 = campos.contacto2;
     if (campos.categoriaApp) upd.categoriaApp = campos.categoriaApp;
     if (campos.medico)     upd.medico    = campos.medico;
+    if (campos.ddjjSalud)  upd.ddjjSalud = campos.ddjjSalud;
     return ref.update(upd).then(function(){ return {ok: true}; });
   }
 }
@@ -769,7 +797,19 @@ function irPaso(n) {
   document.getElementById('step' + n).classList.add('activo');
   window.scrollTo(0, 0);
   if (n === 4) inicializarPaso4();
-  if (n === 5) renderResumen();
+  if (n === 5) { renderResumen(); inicializarDdjj(); }
+}
+
+function inicializarDdjj() {
+  var chk = document.getElementById('ddjj-check');
+  var btn = document.getElementById('btn-confirmar');
+  var box = document.getElementById('ddjj-box');
+  var yaFirmado = S.sistemaData && S.sistemaData.ddjjSalud && S.sistemaData.ddjjSalud.firmado;
+  if (chk) {
+    chk.checked = !!yaFirmado;
+    if (btn) btn.disabled = !chk.checked;
+    if (box) box.classList.toggle('firmada', chk.checked);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1168,6 +1208,12 @@ function reiniciar() {
   document.getElementById('prev-foto-wrap').style.display='none';
   var zonaLabel = document.querySelector('.upload-zone-label-apto');
   if (zonaLabel) zonaLabel.innerText='Subir imagen o PDF del certificado';
+  var ddjjChk = document.getElementById('ddjj-check');
+  if (ddjjChk) ddjjChk.checked = false;
+  var ddjjBox = document.getElementById('ddjj-box');
+  if (ddjjBox) ddjjBox.classList.remove('firmada');
+  var btnConf = document.getElementById('btn-confirmar');
+  if (btnConf) btnConf.disabled = true;
 
   // Ir al paso 1 sin animar progress (reset total)
   for (var i=1; i<=5; i++){
@@ -1218,6 +1264,10 @@ function getCamposEditados() {
     out.domicilio= out.domicilio || (S.ocrData && S.ocrData.domicilio) || '';
   }
   out.medico = getMedico();
+  var chk = document.getElementById('ddjj-check');
+  if (chk && chk.checked) {
+    out.ddjjSalud = {firmado: true, fecha: new Date().toISOString()};
+  }
   return out;
 }
 
@@ -1246,6 +1296,14 @@ function renderMedico() {
     html += '</div>';
   });
   document.getElementById('medico-body').innerHTML = html;
+}
+
+function toggleDdjj() {
+  var chk = document.getElementById('ddjj-check');
+  var btn = document.getElementById('btn-confirmar');
+  var box = document.getElementById('ddjj-box');
+  if (btn) btn.disabled = !chk.checked;
+  if (box) box.classList.toggle('firmada', chk.checked);
 }
 
 function toggleAyuda() {
