@@ -2138,6 +2138,14 @@ function _fsDispatch(action, p, ok, err) {
       break;
     }
 
+    case 'deleteInscripcion': {
+      var docIdDel = p.rowIndex;
+      db.collection('inscripciones').doc(docIdDel.toString()).delete()
+        .then(function(){ cb({ok:true}); })
+        .catch(function(e){ cbErr(e.message); });
+      break;
+    }
+
     case 'inscripcionMasiva': {
       // Crear inscripciones para todos los socios de una categoría
       var sociosMasiva = DB.jugadores.slice(1).filter(function(f){
@@ -2571,7 +2579,8 @@ function renderInscripcionesModal(dni) {
       + '<div class="insc-fechas">Desde ' + i.desde + ' &middot; ' + hastaStr + (i.obs ? ' &middot; ' + i.obs : '') + '</div>'
       + '</div>'
       + '<div style="text-align:right;"><div class="insc-monto">$' + montoEfectivo.toLocaleString('es-AR') + '</div>' + badgeDesc + '</div>'
-      + (!baja ? '<button class="insc-btn" onclick="darDeBajaInscripcion(' + i._row + ',\'' + dniStr + '\')">BAJA</button>' : '')
+      + (!baja ? '<button class="insc-btn" onclick="darDeBajaInscripcion(\'' + i._row + '\',\'' + dniStr + '\')">BAJA</button>' : '<button class="insc-btn" style="background:rgba(109,224,151,.15);color:#6de097;border-color:#6de097;" onclick="reactivarInscripcion(\'' + i._row + '\',\'' + dniStr + '\')">REACTIVAR</button>')
+      + '<button class="insc-btn" style="background:rgba(228,67,71,.15);color:var(--red);border-color:var(--red);margin-left:4px;" onclick="eliminarInscripcion(\'' + i._row + '\',\'' + dniStr + '\')" title="Eliminar inscripcion (creada por error)">&#x2715;</button>'
       + '</div>';
   }).join('');
 }
@@ -2652,6 +2661,34 @@ function darDeBajaInscripcion(rowIndex, dni) {
     toast('Inscripcion dada de baja', 'ok');
   }, function(e){ ocultarLoader(); alert('Error: '+e); });
   }); // sgdConfirm
+}
+
+function reactivarInscripcion(rowIndex, dni) {
+  sgdConfirm('Reactivar esta inscripcion?<br><br>Se quita la fecha de baja y vuelve a considerarse vigente.', function() {
+    mostrarLoader('Reactivando...');
+    callScript({action:'updateInscripcion', rowIndex:rowIndex, hasta:'', pass:TOKEN, _noRetry:true}, function(){
+      var insc = DB.inscripciones.find(function(i){ return i._row === rowIndex; });
+      if(insc) insc.hasta = '';
+      renderInscripcionesModal(dni);
+      ocultarLoader();
+      renderPlayers();
+      toast('Inscripcion reactivada', 'ok');
+    }, function(e){ ocultarLoader(); alert('Error: '+e); });
+  }, 'REACTIVAR');
+}
+
+function eliminarInscripcion(rowIndex, dni) {
+  sgdConfirm('<b>Eliminar</b> esta inscripcion?<br><br>Se borra permanentemente del sistema. Usalo solo si fue creada por error — los calculos de deuda historica de esta inscripcion desapareceran.', function() {
+    mostrarLoader('Eliminando inscripcion...');
+    callScript({action:'deleteInscripcion', rowIndex:rowIndex, pass:TOKEN, _noRetry:true}, function(){
+      var idx = DB.inscripciones.findIndex(function(i){ return i._row === rowIndex; });
+      if(idx >= 0) DB.inscripciones.splice(idx, 1);
+      renderInscripcionesModal(dni);
+      ocultarLoader();
+      renderPlayers();
+      toast('Inscripcion eliminada', 'ok');
+    }, function(e){ ocultarLoader(); alert('Error: '+e); });
+  }, 'ELIMINAR');
 }
 
 // ================================================================
@@ -4472,10 +4509,7 @@ function eliminarSocio() {
   var f = DB.jugadores[itemSel.arrIdx]; if(!f) return;
   if(f._eliminado) return alert('Este socio ya esta eliminado');
   var nombreCompleto = (f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'');
-  sgdConfirm('Eliminar a <b>' + nombreCompleto + '</b> (DNI ' + dni + ')?<br><br>El socio queda archivado y puede restaurarse. Se requiere un motivo.', function(){
-    var motivo = prompt('Motivo de la eliminacion (obligatorio):');
-    if(!motivo || !motivo.trim()) return alert('El motivo es obligatorio');
-    motivo = motivo.trim();
+  sgdPrompt('Eliminar a <b>' + nombreCompleto + '</b> (DNI ' + dni + ')?<br><br>El socio queda archivado y puede restaurarse. Ingresá el motivo:', function(motivo){
     mostrarLoader('Eliminando socio...');
     var snapshot = {};
     for(var k in f){ if(Object.prototype.hasOwnProperty.call(f,k) && k.indexOf('_') !== 0) snapshot[k] = f[k]; }
@@ -4503,7 +4537,7 @@ function eliminarSocio() {
       renderPlayers();
       toast('Socio eliminado', 'ok');
     }).catch(function(e){ ocultarLoader(); alert('Error: ' + (e.message||e)); });
-  }, 'ELIMINAR');
+  }, { btnOkLabel: 'ELIMINAR', placeholder: 'Ej: Se dio de baja, se mudó...' });
 }
 
 function restaurarSocio() {
@@ -6330,6 +6364,7 @@ function sgdConfirm(msg, onOk, btnOkLabel) {
   msgEl.innerHTML = msg;
   if (btnOkLabel) okBtn.innerText = btnOkLabel;
   else okBtn.innerText = 'CONFIRMAR';
+  document.getElementById('modalConfirmInputWrap').style.display = 'none';
   modal.style.display = 'flex';
   // Limpiar listeners anteriores
   var newOk = okBtn.cloneNode(true);
@@ -6343,6 +6378,49 @@ function sgdConfirm(msg, onOk, btnOkLabel) {
   document.getElementById('modalConfirmCancel').onclick = function() {
     modal.style.display = 'none';
   };
+}
+
+function sgdPrompt(msg, onOk, opts) {
+  opts = opts || {};
+  var btnOkLabel = opts.btnOkLabel || 'CONFIRMAR';
+  var placeholder = opts.placeholder || '';
+  var required = opts.required !== false;
+  var modal = document.getElementById('modalConfirm');
+  var msgEl = document.getElementById('modalConfirmMsg');
+  var okBtn = document.getElementById('modalConfirmOk');
+  var cancelBtn = document.getElementById('modalConfirmCancel');
+  var inputWrap = document.getElementById('modalConfirmInputWrap');
+  var input = document.getElementById('modalConfirmInput');
+  var errEl = document.getElementById('modalConfirmInputError');
+  msgEl.innerHTML = msg;
+  okBtn.innerText = btnOkLabel;
+  input.value = '';
+  input.placeholder = placeholder;
+  errEl.style.display = 'none';
+  inputWrap.style.display = 'block';
+  modal.style.display = 'flex';
+  setTimeout(function(){ input.focus(); }, 50);
+  var newOk = okBtn.cloneNode(true);
+  var newCancel = cancelBtn.cloneNode(true);
+  okBtn.parentNode.replaceChild(newOk, okBtn);
+  cancelBtn.parentNode.replaceChild(newCancel, cancelBtn);
+  var tryOk = function(){
+    var val = input.value.trim();
+    if(required && !val){
+      errEl.style.display = 'block';
+      input.focus();
+      return;
+    }
+    inputWrap.style.display = 'none';
+    modal.style.display = 'none';
+    if(onOk) onOk(val);
+  };
+  document.getElementById('modalConfirmOk').onclick = tryOk;
+  document.getElementById('modalConfirmCancel').onclick = function(){
+    inputWrap.style.display = 'none';
+    modal.style.display = 'none';
+  };
+  input.onkeydown = function(e){ if(e.key === 'Enter'){ e.preventDefault(); tryOk(); } };
 }
 
 window.onload = function() {
@@ -7033,6 +7111,10 @@ function ejecutarRecategorizacion() {
 <div id="modalConfirm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9998;align-items:center;justify-content:center;padding:20px;">
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:24px;width:100%;max-width:360px;box-shadow:0 0 40px rgba(0,0,0,.5);">
     <div id="modalConfirmMsg" style="font-size:15px;margin-bottom:20px;line-height:1.5;"></div>
+    <div id="modalConfirmInputWrap" style="display:none;margin-bottom:16px;">
+      <input id="modalConfirmInput" type="text" style="width:100%;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;color:var(--text);font-family:inherit;font-size:14px;box-sizing:border-box;">
+      <div id="modalConfirmInputError" style="display:none;color:var(--red);font-size:11px;margin-top:4px;">Campo obligatorio</div>
+    </div>
     <div style="display:flex;gap:10px;">
       <button id="modalConfirmOk" style="flex:1;padding:12px;background:var(--red);color:#fff;border:none;border-radius:10px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;cursor:pointer;letter-spacing:.05em;">CONFIRMAR</button>
       <button id="modalConfirmCancel" style="flex:1;padding:12px;background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:10px;font-family:'Barlow Condensed',sans-serif;font-size:15px;font-weight:700;cursor:pointer;">CANCELAR</button>
