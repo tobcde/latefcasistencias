@@ -299,6 +299,7 @@ video{width:100%;display:block;}
     <div class="card-title">&#x1F4F7; Foto</div>
     <div id="prev-foto-wrap" style="display:none;position:relative;">
       <img id="prev-foto-img" class="upload-preview">
+      <button class="upload-preview-remove" onclick="quitarFoto('foto')">&#x2715;</button>
     </div>
     <div class="upload-zone" id="zona-foto">
       <div class="upload-zone-icon">&#x1F933;</div>
@@ -412,7 +413,7 @@ video{width:100%;display:block;}
 
         <div class="ayuda-step">
           <div class="ayuda-step-num">4</div>
-          <div class="ayuda-step-body"><b>Completar.</b> Cargá email, celular, domicilio, contactos de emergencia y categoría. Podés sumar foto y apto médico.</div>
+          <div class="ayuda-step-body"><b>Completar.</b> Cargá email, celular, domicilio y contactos de emergencia. Podés sumar foto y apto médico.</div>
         </div>
 
         <div class="ayuda-step">
@@ -1028,7 +1029,6 @@ function inicializarPaso4() {
     + '</div></div>';
 
   // Campos editables
-  var sugerida = S.esNuevo ? sugerirCategoriaPorEdad(ocr.fechaNac, ocr.sexo) : '';
   CAMPOS.forEach(function(c) {
     var val = sis[c.key] || '';
     // Separar contacto1/2 del formato "Nombre|Tel"
@@ -1043,18 +1043,7 @@ function inicializarPaso4() {
       + '<input type="' + c.tipo + '" id="edit-' + c.key + '" value="' + escHtml(val) + '"></div>';
   });
 
-  // Select de categoría (auto-sugerida por edad + sexo del DNI)
-  var catActual = sis.categoriaApp || sugerida || '';
-  var catHtml = '<div class="field"><label>Categoría'
-    + (sugerida && catActual === sugerida ? ' <span style="color:var(--secondary);font-size:11px;font-weight:normal;">&#x2728; Sugerida por edad</span>' : '')
-    + '</label><select id="edit-categoriaApp" style="width:100%;padding:12px;background:var(--surface2);color:var(--text);border:1px solid var(--border);border-radius:8px;font-size:14px;">';
-  catHtml += '<option value="">— Sin categoría —</option>';
-  CATEGORIAS.forEach(function(c) {
-    var sel = (c.nombre === catActual) ? ' selected' : '';
-    catHtml += '<option value="' + escHtml(c.nombre) + '"' + sel + '>' + escHtml(labelCategoria(c)) + '</option>';
-  });
-  catHtml += '</select></div>';
-  html += catHtml;
+  // (Categoría se asigna manualmente en admin)
 
   document.getElementById('campos-editables').innerHTML = html;
 
@@ -1154,7 +1143,7 @@ function renderResumen() {
   var tSocio = INST.terminologiaSocio || 'Socio';
 
   var html = '<div class="resumen-section"><div class="resumen-title">Datos personales</div>';
-  var labels = {apellido:'Apellido',nombre:'Nombre',dni:'DNI',fechaNac:'Fecha Nac.',sexo:'Sexo',domicilio:'Domicilio',email:'Email',celular:'Celular',categoriaApp:'Categoría',contacto1:'Contacto 1',contacto2:'Contacto 2'};
+  var labels = {apellido:'Apellido',nombre:'Nombre',dni:'DNI',fechaNac:'Fecha Nac.',sexo:'Sexo',domicilio:'Domicilio',email:'Email',celular:'Celular',contacto1:'Contacto 1',contacto2:'Contacto 2'};
   var todos = Object.assign({}, {apellido:ocr.apellido,nombre:ocr.nombre,dni:ocr.dni,fechaNac:ocr.fechaNac,sexo:ocr.sexo}, campos);
   Object.keys(labels).forEach(function(k) {
     if (todos[k]) html += '<div class="resumen-row"><span class="resumen-label">'+labels[k]+'</span><span class="resumen-val">'+escHtml(todos[k])+'</span></div>';
