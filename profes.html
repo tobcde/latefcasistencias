@@ -405,7 +405,7 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);over
 </div>
 
 <div id="toast"></div>
-<div id="vbadge">v1.2</div>
+<div id="vbadge">v1.3</div>
 
 <!-- FIREBASE SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -447,7 +447,8 @@ var INST = {};
 
 var DB = {
   horarios:  [],   // array de docs Firestore (con idx, dia, hora, grupo, extra, etc.)
-  jugadores: []    // array de docs Firestore /socios
+  jugadores: [],   // array de docs Firestore /socios
+  misGrupos: []    // categorías (h.grupo) que el profe enseña — usado por el filtro de jugadores
 };
 var asistencias  = [];  // registros últimos 2 meses [{fecha,turnoId,label,dni,nombre,presente}]
 var asistActual  = {};  // {dni: true/false}
@@ -659,7 +660,7 @@ function doLogout() {
   }
   window._logoutConfirmado = false;
   limpiarSesion();
-  DB = {horarios:[], jugadores:[]};
+  DB = {horarios:[], jugadores:[], misGrupos:[]};
   asistencias = [];
   document.getElementById('app').classList.remove('visible');
   document.getElementById('login-screen').classList.remove('hidden');
@@ -778,6 +779,7 @@ function cargarDatos() {
     DB.horarios.forEach(function(h){
       if (h.grupo && misGrupos.indexOf(h.grupo) < 0) misGrupos.push(h.grupo);
     });
+    DB.misGrupos = misGrupos.slice();
 
     // Asistencias
     asistencias = [];
@@ -911,23 +913,19 @@ function renderJugadoresGrid() {
     return an.localeCompare(bn);
   });
 
-  // Poblar dropdown de categorías — incluye primaria Y secundaria
-  // (ej. "Profesores/Adultas" — el profe de Adultas las tiene en sus jugadores por
-  // su cat secundaria, así que el filtro debe ofrecer "Adultas" también).
+  // Poblar dropdown de categorías — SOLO las categorías que el profe enseña
+  // (DB.misGrupos). Si un jugador tiene catSecundaria="Adultas" y primary="Profesores",
+  // solo mostramos "Adultas" en el filtro porque es la única que el profe entrena.
+  // No tiene sentido ofrecer "Profesores" si el profe no tiene horario de esa categoría.
   var sel = document.getElementById('jug-cat-filter');
   if (sel) {
     var prev = sel.value;
-    var cats = {};
-    ordenados.forEach(function(f){
-      var cP = (f.categoriaApp||'').toString().trim();
-      var cS = (f.catSecundaria||'').toString().trim();
-      if (cP) cats[cP] = true;
-      if (cS) cats[cS] = true;
-    });
-    var sorted = Object.keys(cats).sort(function(a,b){ return a.localeCompare(b); });
+    var misGruposSet = {};
+    (DB.misGrupos||[]).forEach(function(g){ if (g) misGruposSet[g] = true; });
+    var sorted = Object.keys(misGruposSet).sort(function(a,b){ return a.localeCompare(b); });
     sel.innerHTML = '<option value="">Todas las categorías</option>' +
       sorted.map(function(c){ return '<option value="'+escapeHtml(c)+'">'+escapeHtml(c)+'</option>'; }).join('');
-    if (prev && cats[prev]) sel.value = prev;
+    if (prev && misGruposSet[prev]) sel.value = prev;
   }
 
   grid.innerHTML = ordenados.map(function(f){
