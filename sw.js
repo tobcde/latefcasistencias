@@ -1,4 +1,4 @@
-const CACHE = 'sgd-sgd-late-v3';
+const CACHE = 'sgd-sgd-late-v4';
 const ASSETS = ['./', './admin.html', './profes.html', './datos.html'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS).catch(() => {})));
