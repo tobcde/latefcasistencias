@@ -1508,7 +1508,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v1.1</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v1.2</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -6597,14 +6597,17 @@ function citInicializar() {
     o.value = a.nombre; o.text = (a.icono && !iconoEsUrl(a.icono) ? a.icono + ' ' : '') + a.nombre;
     actSel.appendChild(o);
   });
-  // Si solo hay una actividad, la pre-selecciona
+  // Reset del combo de categorías al placeholder ANTES de llamar a citOnActChange,
+  // sino cuando hay 1 sola actividad el auto-call lo popula pero acto seguido
+  // esta línea lo pisaría y quedaría vacío (bug histórico).
+  document.getElementById('cit-sel-cat').innerHTML = '<option value="">-- Categoria --</option>';
+  document.getElementById('cit-form-partido').style.display = 'none';
+  document.getElementById('cit-jugadores-wrap').style.display = 'none';
+  // Si solo hay una actividad, la pre-selecciona y dispara el populate de categorías
   if ((DB.actividades || []).length === 1) {
     actSel.value = DB.actividades[0].nombre;
     citOnActChange();
   }
-  document.getElementById('cit-sel-cat').innerHTML = '<option value="">-- Categoria --</option>';
-  document.getElementById('cit-form-partido').style.display = 'none';
-  document.getElementById('cit-jugadores-wrap').style.display = 'none';
   citCargarHistorial();
 }
 
