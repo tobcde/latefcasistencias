@@ -888,7 +888,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
         <div class="inst-field" style="grid-column:1/-1;">
           <div class="inst-label">Carpeta de Drive para documentos (DNI, fotos, aptos)</div>
           <input id="inst-driveFolder" class="inst-input" placeholder="ID de la carpeta de Drive">
-          <p style="font-size:10px;color:var(--muted);margin-top:4px;">En la URL <code>drive.google.com/drive/folders/<b>ID</b></code>, copiá solo el ID. La carpeta debe tener permisos para la cuenta de servicio del GAS.</p>
+          <p style="font-size:10px;color:var(--muted);margin-top:4px;">En la URL <code>drive.google.com/drive/folders/<b>ID</b></code>, copi&aacute; solo el ID. La carpeta debe tener permisos para la cuenta de servicio del GAS.</p>
         </div>
         <div class="inst-field">
           <div class="inst-label">Color primario <span id="inst-color1-preview" class="color-preview" style="background:#1a7a3c;"></span></div>
@@ -956,7 +956,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
         <div class="modal-title" id="m-nombre">Cargando...</div>
         <div class="modal-subtitle" id="m-dni-sub"></div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+      <div style="display:flex;gap:8px;align-items:center;">
         <button class="btn-editar" id="btn-convertir-profe" onclick="convertirSocioAProfe()" title="Crear profesor con el mismo DNI">&#x1F464; A Profesor</button>
         <button class="btn-editar" id="btn-editar-ficha" onclick="toggleEditarFicha()">&#x270F; Editar</button>
         <button class="btn-editar" id="btn-eliminar-socio" onclick="eliminarSocio()" title="Eliminar socio (soft delete)" style="color:var(--red);border-color:var(--red);">&#x1F5D1; Eliminar</button>
@@ -1510,7 +1510,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v1.8</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.0-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -1538,7 +1538,7 @@ var FIREBASE_CONFIG = {
   "appId": "1:870973121630:web:e654f677a28a6d125180cf"
 };
 var GAS_URL         = 'https://script.google.com/macros/s/AKfycbz6yaxIs2ARj3YPPloBdC3GM1seBGqeyYdnAihmo5-E4lIoCd1MbJmcsh-_Xeb7B5ma/exec';
-var GAS_OCR_KEY     = ''; // deprecated
+var GAS_OCR_KEY     = '5PG97#wL'; // deprecated
 var ADMIN_EMAIL     = 'admin@sgd.app';
 
 firebase.initializeApp(FIREBASE_CONFIG);
@@ -1551,6 +1551,301 @@ document.body.style.visibility='visible';
 // ---------------------------------------------------------------
 var DB = {jugadores:[], profesores:[], sedes:[], categorias:[], horarios:[], configPagos:[], institucion:{}, actividades:[], inscripciones:[], precios:[]};
 var CUOTAS_DB = {planes:[], cuotas:[]};
+
+// ═══════════════════════════════════════════════════════════════════════
+// MIGRACIÓN A IDs ESTABLES — helpers + índices nombre→id (Fase 1, v2.0)
+// Fase 1: escritura dual (nombre + *Id). Lectura sigue por nombre.
+// Design doc: memory/migracion_a_ids_estables.md
+// ═══════════════════════════════════════════════════════════════════════
+// Normalización consistente con Python 02_dryrun.py y backfill
+function _norm(s){
+  if (s===null||s===undefined) return '';
+  s = String(s).trim().toLowerCase();
+  // strip accents (NFD + quitar marks)
+  try { s = s.normalize('NFD').replace(/[\u0300-\u036f]/g,''); } catch(e){}
+  return s.replace(/\s+/g,' ');
+}
+function _csvSplit(s){
+  if (!s) return [];
+  return String(s).split(',').map(function(x){return x.trim();}).filter(Boolean);
+}
+// Índices por docId y por nombre normalizado. Rebuildeables.
+DB.catsById = {};    DB.catsByNorm = {};
+DB.actsById = {};    DB.actsByNorm = {};
+DB.sedesById = {};   DB.sedesByNorm = {};
+DB.periodosById = {}; DB.periodosByNorm = {};
+DB.profesoresByDni = {}; DB.profesByNombreNorm = {};
+function buildIdIndexes() {
+  // Categorías: DB.categorias = [[nombre,color,desde,hasta,genero,actCsv,docId], ...]
+  DB.catsById = {}; DB.catsByNorm = {};
+  (DB.categorias||[]).forEach(function(c){
+    var nm = c[0]||''; var id = c[6]||'';
+    if (id) DB.catsById[id] = {id:id, nombre:nm, color:c[1], desde:c[2], hasta:c[3], genero:c[4], actividades:c[5]};
+    if (nm) DB.catsByNorm[_norm(nm)] = id;
+  });
+  // Actividades: DB.actividades = [{nombre,icono,color,monto,_row}, ...]
+  DB.actsById = {}; DB.actsByNorm = {};
+  (DB.actividades||[]).forEach(function(a){
+    var id = a._row||'';
+    if (id) DB.actsById[id] = a;
+    if (a.nombre) DB.actsByNorm[_norm(a.nombre)] = id;
+  });
+  // Sedes: DB.sedes = [[nombre, docId], ...]
+  DB.sedesById = {}; DB.sedesByNorm = {};
+  (DB.sedes||[]).forEach(function(s){
+    var nm = s[0]||''; var id = s[1]||'';
+    if (id) DB.sedesById[id] = {id:id, nombre:nm};
+    if (nm) DB.sedesByNorm[_norm(nm)] = id;
+  });
+  // Profesores: DB.profesores = [[nombre,dni,fechaNac,email,pwd,docId(=dni),...], ...]
+  DB.profesoresByDni = {}; DB.profesByNombreNorm = {};
+  (DB.profesores||[]).forEach(function(p){
+    var dni = p[1]||p[5]||'';
+    if (dni) DB.profesoresByDni[dni] = {dni:dni, nombre:p[0]};
+    if (p[0]) DB.profesByNombreNorm[_norm(p[0])] = dni;
+  });
+  // Periodos: DB.periodos (nueva — se pobla al loader). Si no hay, queda vacío.
+  DB.periodosById = DB.periodosById||{};
+  DB.periodosByNorm = DB.periodosByNorm||{};
+}
+// Resolvers nombre→id con fallback. Devuelve '__UNRESOLVED__' si el nombre no existe
+// en el catálogo (el backfill lo marca igual y el admin resuelve después).
+function resolveCatId(nombre){
+  if (!nombre) return '';
+  return DB.catsByNorm[_norm(nombre)] || '__UNRESOLVED__';
+}
+function resolveActId(nombre){
+  if (!nombre) return '';
+  return DB.actsByNorm[_norm(nombre)] || '__UNRESOLVED__';
+}
+function resolveSedeId(nombre){
+  if (!nombre) return '';
+  return DB.sedesByNorm[_norm(nombre)] || '__UNRESOLVED__';
+}
+function resolvePeriodoId(nombre){
+  if (!nombre) return '';
+  var direct = DB.periodosByNorm[_norm(nombre)];
+  if (direct) return direct;
+  // QA-002 (v2.4): fallback por año. Las cuotas guardan "Abril 2026" pero el
+  // catálogo tipicamente solo tiene periodos anuales ("Anual 2026") o un
+  // subset mensual. Si matcheamos el año en el nombre y hay exactamente un
+  // periodo cuyo doc.data contiene ese año, usamos ese docId.
+  var m = String(nombre).match(/(\d{4})/);
+  if (m) {
+    var anio = m[1];
+    var candidatos = [];
+    for (var k in DB.periodosById) {
+      if (!Object.prototype.hasOwnProperty.call(DB.periodosById, k)) continue;
+      var p = DB.periodosById[k];
+      var haystack = [p.id||'', p.nombre||'', p.fechaInicio||'', p.fechaFin||''].join(' ');
+      if (haystack.indexOf(anio) >= 0) candidatos.push(p.id);
+    }
+    if (candidatos.length === 1) return candidatos[0];
+    // Si hay múltiples, preferir el que matchea fechaInicio/Fin del año
+    if (candidatos.length > 1) {
+      for (var i=0; i<candidatos.length; i++) {
+        var q = DB.periodosById[candidatos[i]];
+        if ((q.fechaInicio||'').indexOf(anio+'-') === 0 ||
+            (q.fechaFin||'').indexOf(anio+'-12') === 0) return q.id;
+      }
+      return candidatos[0];
+    }
+  }
+  return '__UNRESOLVED__';
+}
+function resolveProfeIdByNombre(nombre){
+  if (!nombre) return '';
+  return DB.profesByNombreNorm[_norm(nombre)] || '__UNRESOLVED__';
+}
+// Resolver CSV de actividades → array de ids
+function resolveActIdsCsv(csv){
+  return _csvSplit(csv).map(resolveActId).filter(function(x){ return x; });
+}
+// Resolver CSV de profesores (nombres compuestos con comas) → array de dnis.
+// Usa longest-match sobre el CSV crudo para evitar romper "Apellido, Nombre".
+function resolveProfesIdsCsv(csv){
+  if (!csv) return [];
+  var remaining = String(csv);
+  var names = Object.keys(DB.profesByNombreNorm).slice().sort(function(a,b){ return b.length - a.length; });
+  var out = [];
+  // Necesitamos matchear nombres RAW (case-insensitive) en el remaining.
+  // Construir lista de (nombreRaw, dni) para hacer el substring match:
+  var rawPairs = (DB.profesores||[]).map(function(p){ return {nombre:p[0]||'', dni:p[1]||p[5]||''}; })
+    .filter(function(x){ return x.nombre && x.dni; })
+    .sort(function(a,b){ return b.nombre.length - a.nombre.length; });
+  rawPairs.forEach(function(pr){
+    if (!pr.nombre) return;
+    var re = new RegExp(pr.nombre.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'), 'i');
+    if (re.test(remaining) && out.indexOf(pr.dni) < 0){
+      out.push(pr.dni);
+      remaining = remaining.replace(re, '');
+    }
+  });
+  return out;
+}
+// ═══════════════════════════════════════════════════════════════════════
+// FASE 2: helpers de lectura por ID con fallback al nombre legacy.
+// Se usan SIEMPRE en reads/displays para sobrevivir a renames de catalogo.
+// Los writes (FASE 1) siguen escribiendo ambos: nombre legacy + *Id.
+// ═══════════════════════════════════════════════════════════════════════
+function _nomByCatId(id) {
+  if (id && id !== '__UNRESOLVED__' && DB.catsById && DB.catsById[id]) return DB.catsById[id].nombre || '';
+  return '';
+}
+function _nomByActId(id) {
+  if (id && id !== '__UNRESOLVED__' && DB.actsById && DB.actsById[id]) return DB.actsById[id].nombre || '';
+  return '';
+}
+function _nomBySedeId(id) {
+  if (id && id !== '__UNRESOLVED__' && DB.sedesById && DB.sedesById[id]) return DB.sedesById[id].nombre || '';
+  return '';
+}
+function _nomByPeriodoId(id) {
+  if (id && id !== '__UNRESOLVED__' && DB.periodosById && DB.periodosById[id]) return DB.periodosById[id].nombre || '';
+  return '';
+}
+function _nomByProfeDni(dni) {
+  if (dni && DB.profesoresByDni && DB.profesoresByDni[dni]) return DB.profesoresByDni[dni].nombre || '';
+  return '';
+}
+
+// Socios (f = row array con props *Id)
+function socioCatNombre(f)   { return _nomByCatId(f && f.categoriaAppId)  || (f && f[COL.CATEGORIA_APP]) || ''; }
+function socioCatSecNombre(f){ return _nomByCatId(f && f.catSecundariaId) || (f && f[COL.CAT_SECUNDARIA]) || ''; }
+function socioPlanNombre(f)  { return _nomByActId(f && f.planId)          || (f && f[COL.PLAN]) || ''; }
+function socioSedeNombre(f)  { return _nomBySedeId(f && f.sedeId)         || (f && f.sede) || ''; }
+function socioActsCsv(f) {
+  // prefiere actividadesIds[] con nombres actuales; fallback al CSV legacy
+  if (f && Array.isArray(f.actividadesIds) && f.actividadesIds.length) {
+    var nombres = f.actividadesIds.map(_nomByActId).filter(function(x){ return x; });
+    if (nombres.length) return nombres.join(', ');
+  }
+  return (f && f[COL.ACTIVIDADES]) || '';
+}
+
+// Horarios (h = row array con props *Id)
+function horarioCatNombre(h)  { return _nomByCatId(h && h.categoriaId)  || (h && h[4]) || ''; }
+function horarioActNombre(h)  { return _nomByActId(h && h.actividadId)  || (h && h[5]) || ''; }
+function horarioSedeNombre(h) { return _nomBySedeId(h && h.sedeId)      || (h && h[2]) || ''; }
+function horarioProfesCsv(h) {
+  if (h && Array.isArray(h.profesoresIds) && h.profesoresIds.length) {
+    var nombres = h.profesoresIds.map(_nomByProfeDni).filter(function(x){ return x; });
+    if (nombres.length) return nombres.join(', ');
+  }
+  return (h && h[3]) || '';
+}
+
+// Cuotas — prefiere snapshot historico planNombre/periodoNombre (immutable cuando se pago)
+// Si no hay snapshot (cuotas pre-FASE1), cae al ID→nombre actual; si tampoco, al legacy.
+function cuotaPlanNombre(c) {
+  if (c && c.planNombre) return c.planNombre;
+  return _nomByActId(c && c.planId) || (c && c[2]) || '';
+}
+function cuotaPeriodoNombre(c) {
+  if (c && c.periodoNombre) return c.periodoNombre;
+  return _nomByPeriodoId(c && c.periodoId) || (c && c.periodo) || '';
+}
+
+// Inscripciones
+function inscPlanNombre(i) {
+  return _nomByActId(i && i.planId) || (i && i.plan) || '';
+}
+
+// FASE 2: tras un rename de catalogo (categoria/actividad/sede/profe), los rows
+// en DB.jugadores/DB.horarios/CUOTAS_DB.cuotas tienen el nombre viejo cacheado
+// en el slot posicional. Este helper recomputa esos slots usando *Id -> catalogo
+// actual, manteniendo fallback al nombre legacy si no hay ID.
+// Llamar SIEMPRE despues de buildIdIndexes() cuando cambia un catalogo.
+function _refreshResolvedRows() {
+  if (Array.isArray(DB.jugadores)) {
+    DB.jugadores.forEach(function(row){
+      if (!row || !row.length) return;
+      var leg = row._legacy || {};
+      row[COL.CATEGORIA_APP]   = _nomByCatId(row.categoriaAppId)  || leg.categoriaApp || row[COL.CATEGORIA_APP] || '';
+      row[COL.CAT_SECUNDARIA]  = _nomByCatId(row.catSecundariaId) || leg.catSecundaria || row[COL.CAT_SECUNDARIA] || '';
+      row[COL.PLAN]            = _nomByActId(row.planId)          || leg.plan || row[COL.PLAN] || '';
+      if (Array.isArray(row.actividadesIds) && row.actividadesIds.length) {
+        var _nm = row.actividadesIds.map(_nomByActId).filter(function(x){ return x; });
+        row[COL.ACTIVIDADES] = _nm.length ? _nm.join(', ') : (leg.actividades || row[COL.ACTIVIDADES] || '');
+      }
+    });
+  }
+  if (Array.isArray(DB.horarios)) {
+    DB.horarios.forEach(function(h){
+      if (!h || !h.length) return;
+      var leg = h._legacy || {};
+      h[2] = _nomBySedeId(h.sedeId)     || leg.sede  || h[2] || '';
+      h[4] = _nomByCatId(h.categoriaId) || leg.grupo || h[4] || '';
+      h[5] = _nomByActId(h.actividadId) || leg.liga  || h[5] || '';
+      if (Array.isArray(h.profesoresIds) && h.profesoresIds.length) {
+        var _pn = h.profesoresIds.map(_nomByProfeDni).filter(function(x){ return x; });
+        h[3] = _pn.length ? _pn.join(', ') : (leg.profesores || h[3] || '');
+      }
+    });
+  }
+  if (window.CUOTAS_DB && Array.isArray(CUOTAS_DB.cuotas)) {
+    CUOTAS_DB.cuotas.forEach(function(c){
+      if (!c || !c.length) return;
+      // planNombre snapshot es historico: NO se refresca
+      if (!c.planNombre) {
+        var leg = c._legacy || {};
+        c[2] = _nomByActId(c.planId) || leg.plan || c[2] || '';
+      }
+    });
+  }
+  // Inscripciones vigentes — refrescan nombre del plan
+  if (Array.isArray(DB.inscripciones)) {
+    DB.inscripciones.forEach(function(i){
+      if (!i) return;
+      var leg = i._legacy || {};
+      i.plan = _nomByActId(i.planId) || leg.plan || i.plan || '';
+    });
+  }
+  // Precios — actividad/categoria actuales
+  if (Array.isArray(DB.precios)) {
+    DB.precios.forEach(function(pr){
+      if (!pr) return;
+      var leg = pr._legacy || {};
+      pr.actividad = _nomByActId(pr.actividadId) || leg.actividad || pr.actividad || '';
+      pr.categoria = _nomByCatId(pr.categoriaId) || leg.categoria || pr.categoria || '';
+    });
+  }
+  // Categorias — CSV de actividades actual
+  if (Array.isArray(DB.categorias)) {
+    DB.categorias.forEach(function(c){
+      if (!c || !Array.isArray(c.actividadesIds) || !c.actividadesIds.length) return;
+      var _nm = c.actividadesIds.map(_nomByActId).filter(function(x){ return x; });
+      if (_nm.length) c[5] = _nm.join(',');
+    });
+  }
+}
+
+// QA-015: helper para renombrar options cacheadas en TODOS los <select>
+// del documento cuando se hace rename de un catalogo. Evita que un modal
+// abierto conserve el nombre viejo hasta re-abrirse.
+function _renombrarOptionsEnSelects(nombreViejo, nombreNuevo) {
+  if (!nombreViejo || !nombreNuevo || nombreViejo === nombreNuevo) return;
+  var selects = document.querySelectorAll('select');
+  Array.prototype.forEach.call(selects, function(sel){
+    Array.prototype.forEach.call(sel.options || [], function(opt){
+      // Evitar pisar options vacias / "Sin asignar" / etc.
+      if (opt.text === nombreViejo)   opt.text   = nombreNuevo;
+      if (opt.value === nombreViejo)  opt.value  = nombreNuevo;
+      // Si hay prefijo icono ("⚽ Sub-12"), solo actualizar si el sufijo matchea
+      var sufijo = opt.text.replace(/^\S+\s+/, '');
+      if (sufijo === nombreViejo) opt.text = opt.text.replace(nombreViejo, nombreNuevo);
+    });
+  });
+  // Tambien refrescar checkboxes con data-act / data-cat (categoria en cards)
+  var cbs = document.querySelectorAll('[data-act],[data-cat]');
+  Array.prototype.forEach.call(cbs, function(el){
+    if (el.getAttribute('data-act')  === nombreViejo) el.setAttribute('data-act',  nombreNuevo);
+    if (el.getAttribute('data-cat')  === nombreViejo) el.setAttribute('data-cat',  nombreNuevo);
+    if (el.getAttribute('data-plan') === nombreViejo) el.setAttribute('data-plan', nombreNuevo);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 // Flags de carga lazy — evitan recargar datos que ya están en memoria
 var _cargado = {cuotas: false, asistencias: false, inscripciones: false, citaciones: false, inactivos: true};
 
@@ -1706,6 +2001,18 @@ function socioToRow(doc, docId) {
   // 18=Plan,19=Foto,20=DniFoto,21=Apto,22=Contacto1,23=Contacto2,24=DniDorso,
   // 25=Actividades,26=Saldo,27=CatSecundaria
   // Los últimos 2 elementos son hoja y fila (usados por itemSel)
+  // FASE 2: resolvemos nombres desde *Id (catalogo actual) con fallback al legacy.
+  // Asi row[COL.CATEGORIA_APP], row[COL.PLAN], etc. siempre traen el nombre actualizado.
+  var catNom = _nomByCatId(d.categoriaAppId) || d.categoriaApp || '';
+  var catSecNom = _nomByCatId(d.catSecundariaId) || d.catSecundaria || '';
+  var planNom = _nomByActId(d.planId) || d.plan || '';
+  var actsCsv;
+  if (Array.isArray(d.actividadesIds) && d.actividadesIds.length) {
+    var _nm = d.actividadesIds.map(_nomByActId).filter(function(x){ return x; });
+    actsCsv = _nm.length ? _nm.join(', ') : (d.actividades || '');
+  } else {
+    actsCsv = d.actividades || '';
+  }
   var row = [
     d.apellido||'', d.nombre||'', d.email||'',
     d.dni||id,      // tarjeta = DNI
@@ -1714,44 +2021,85 @@ function socioToRow(doc, docId) {
     d.tipoDoc||'DNI', d.dni||id, d.fechaNac||'',
     d.sexo||'', d.domicilio||'', d.obs||'',
     d.membresia||'', d.vencimiento||'', d.fechaIngreso||'',
-    d.creador||'', d.categoriaApp||'', d.plan||'',
+    d.creador||'', catNom, planNom,
     d.foto||'', d.dniFoto||'', d.apto||'',
     d.contacto1||'', d.contacto2||'', d.dniDorso||'',
-    d.actividades||'', d.saldo||0, d.catSecundaria||'',
+    actsCsv, d.saldo||0, catSecNom,
     'socios', id   // hoja, fila (usamos el docId como "fila")
   ];
   row._eliminado = d.eliminado === true;
   row._eliminadoEn = d.eliminadoEn || null;
   row._eliminadoPor = d.eliminadoPor || '';
   row._motivoEliminacion = d.motivoEliminacion || '';
+  // FASE 2: guardar refs-por-ID como propiedades del row (para lookups post-rename)
+  row.categoriaAppId   = d.categoriaAppId   || '';
+  row.catSecundariaId  = d.catSecundariaId  || '';
+  row.planId           = d.planId           || '';
+  row.sedeId           = d.sedeId           || '';
+  row.actividadesIds   = Array.isArray(d.actividadesIds) ? d.actividadesIds.slice() : [];
+  // Guardamos tambien los nombres legacy crudos por si algun code path los necesita
+  row._legacy = { categoriaApp: d.categoriaApp||'', plan: d.plan||'', actividades: d.actividades||'', catSecundaria: d.catSecundaria||'' };
   return row;
 }
 
 function horarioToRow(doc) {
   var d = doc.data ? doc.data() : doc;
-  return [d.dia||'', d.hora||'', d.sede||'', d.profesores||'', d.grupo||'', d.liga||d.extra||'', d.modalidad||'Mixto', doc.id];
+  // FASE 2: resolvemos nombres desde *Id con fallback al legacy.
+  // row[2]=sede, row[3]=profesores CSV, row[4]=grupo(categoria), row[5]=actividad
+  var sedeNom = _nomBySedeId(d.sedeId) || d.sede || '';
+  var catNom  = _nomByCatId(d.categoriaId) || d.grupo || '';
+  var actNom  = _nomByActId(d.actividadId) || d.liga || d.extra || '';
+  var profCsv;
+  if (Array.isArray(d.profesoresIds) && d.profesoresIds.length) {
+    var _pn = d.profesoresIds.map(_nomByProfeDni).filter(function(x){ return x; });
+    profCsv = _pn.length ? _pn.join(', ') : (d.profesores || '');
+  } else {
+    profCsv = d.profesores || '';
+  }
+  var row = [d.dia||'', d.hora||'', sedeNom, profCsv, catNom, actNom, d.modalidad||'Mixto', doc.id];
+  // FASE 2: refs-por-ID (para escrituras y lookups post-rename)
+  row.categoriaId   = d.categoriaId   || '';
+  row.actividadId   = d.actividadId   || '';
+  row.sedeId        = d.sedeId        || '';
+  row.profesoresIds = Array.isArray(d.profesoresIds) ? d.profesoresIds.slice() : [];
+  row._legacy = { sede: d.sede||'', profesores: d.profesores||'', grupo: d.grupo||'', liga: d.liga||d.extra||'' };
+  return row;
 }
 
 function cuotaToRow(d, fsId) {
   // formato: [dni, nombre, plan, periodoDesde, periodoHasta, fechaPago, monto, metodo, cobrador, obs, _fsId]
+  // FASE 2: para cuotas preferimos el snapshot historico planNombre (immutable).
+  // Si no hay snapshot (cuotas pre-FASE1), resolvemos el ID al nombre actual; fallback legacy.
+  var planNom = d.planNombre || _nomByActId(d.planId) || d.plan || d.concepto || '';
   var row = [
     d.dni||d.doc||'', d.nombre||'',
-    d.plan||d.concepto||'',
+    planNom,
     d.periodoDesde||'', d.periodoHasta||'',
     d.fechaPago||'', d.monto||0,
     d.metodo||'', d.cobrador||'', d.obs||''
   ];
   row._fsId = fsId || d._fsId || '';
+  // FASE 2: refs-por-ID + snapshots historicos
+  row.planId       = d.planId       || '';
+  row.planNombre   = d.planNombre   || '';
+  row.periodoId    = d.periodoId    || '';
+  row.periodoNombre= d.periodoNombre|| '';
+  row._legacy = { plan: d.plan||d.concepto||'' };
   return row;
 }
 
 function inscToObj(doc) {
   var d = doc.data ? doc.data() : doc;
+  // FASE 2: resolver nombre actual del plan desde planId (sobrevive renames)
+  var planNom = _nomByActId(d.planId) || d.plan || '';
   return {
-    dni: d.dni||'', nombre: d.nombre||'', plan: d.plan||'',
+    dni: d.dni||'', nombre: d.nombre||'', plan: planNom,
     monto: Number(d.monto)||0, desde: d.desde||'', hasta: d.hasta||'',
     obs: d.obs||'', descuentoHno: Number(d.descuentoHno)||0,
-    hnoDe: d.hnoDe||'', _row: doc.id
+    hnoDe: d.hnoDe||'', _row: doc.id,
+    // FASE 2
+    planId: d.planId||'',
+    _legacy: { plan: d.plan||'' }
   };
 }
 
@@ -1804,7 +2152,7 @@ function refrescarDatos() {
   // Cuotas: 2 meses atrás para capturar históricos del mes anterior
   var corteFecha = new Date(yyyy, hoy.getMonth()-1, 1).toLocaleDateString('sv');
   Promise.all([
-    db.collection('socios').get(),  // todos — incluye auto-registros pendientes (activo:false)
+    db.collection('socios').get(), // todos — incluye auto-registros pendientes (activo:false)
     db.collection('cuotas').where('fechaPago','>=', corteFecha).get() // ~350-700
   ]).then(function(results) {
     // Socios
@@ -1876,10 +2224,9 @@ function inicializar(passReal) {
     INST = instDoc.exists ? instDoc.data() : {};
     DB.institucion = INST;
 
-    // Horarios
-    DB.horarios = [];
-    horSnap.forEach(function(doc) { DB.horarios.push(horarioToRow(doc)); });
-    DB.horarios.sort(function(a,b){ var dias=['Lunes','Martes','Miercoles','Jueves','Viernes','Sabado','Domingo']; return dias.indexOf(a[0])-dias.indexOf(b[0]); });
+    // ── FASE 2: primero cargamos TODOS los catalogos, despues buildIdIndexes(),
+    // y recien despues las entidades que dependen de esos indices (horarios,
+    // socios, precios, inscripciones, cuotas).
 
     // Profesores
     DB.profesores = [];
@@ -1889,29 +2236,81 @@ function inicializar(passReal) {
     DB.sedes = [];
     sedesSnap.forEach(function(doc){ var d=doc.data(); DB.sedes.push([d.nombre||doc.id, doc.id]); });
 
+    // Actividades (se necesita ANTES de categorias para resolver el CSV)
+    DB.actividades = [];
+    actSnap.forEach(function(doc){ var d=doc.data(); DB.actividades.push({nombre:d.nombre||doc.id,icono:d.icono||'',color:d.color||'#555',monto:d.monto||0,_row:doc.id}); });
+
     // Categorías
     DB.categorias = [];
+    // Pre-indice actividades por id para resolver el CSV en vivo
+    var _actNomByIdTmp = {};
+    actSnap.forEach(function(ad){ var x=ad.data(); _actNomByIdTmp[ad.id] = x.nombre||ad.id; });
     catSnap.forEach(function(doc){
       var d = doc.data();
       // Soportar formato viejo (edadMin/edadMax) y nuevo (edadDesde/edadHasta)
       var desde = d.edadDesde || d.edadMin || '';
       var hasta  = d.edadHasta  || d.edadMax  || '';
-      DB.categorias.push([d.nombre||doc.id, d.color||'#1a7a3c', desde.toString(), hasta.toString(), d.genero||'Mixto', d.actividades||'', doc.id]);
+      // FASE 2: si hay actividadesIds, resolver a nombres actuales; fallback al CSV legacy
+      var actCsv = d.actividades || '';
+      if (Array.isArray(d.actividadesIds) && d.actividadesIds.length) {
+        var _nm = d.actividadesIds.map(function(id){ return _actNomByIdTmp[id] || ''; }).filter(function(x){ return x; });
+        if (_nm.length) actCsv = _nm.join(',');
+      }
+      var row = [d.nombre||doc.id, d.color||'#1a7a3c', desde.toString(), hasta.toString(), d.genero||'Mixto', actCsv, doc.id];
+      row.actividadesIds = Array.isArray(d.actividadesIds) ? d.actividadesIds.slice() : [];
+      row._legacy = { actividades: d.actividades||'' };
+      DB.categorias.push(row);
     });
 
     // Períodos de pago
     DB.configPagos = [];
     perSnap.forEach(function(doc){ var d=doc.data(); DB.configPagos.push([d.mes||1,d.anioD||2025,d.diaD||1,d.anioH||d.anioD||2025,d.diaH||0,d.gracia||5,d.desc||'']); });
 
-    // Actividades
-    DB.actividades = [];
-    actSnap.forEach(function(doc){ var d=doc.data(); DB.actividades.push({nombre:d.nombre||doc.id,icono:d.icono||'',color:d.color||'#555',monto:d.monto||0,_row:doc.id}); });
+    // Periodos (índice nombre→id para Fase 1 migración IDs)
+    // QA-002: construir nombre display "Mes YYYY" para que resolvePeriodoId matchee
+    // el label que arma la UI (periodoLabel()). Antes solo usaba d.nombre||doc.id
+    // y como los docs no tienen `nombre`, caía en doc.id ("abril2026") que no
+    // coincide con el label "Abril 2026".
+    DB.periodosById = {}; DB.periodosByNorm = {};
+    var _MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                  'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+    perSnap.forEach(function(doc){
+      var d = doc.data();
+      var nm = d.nombre || '';
+      if (!nm && d.mes && (d.anioD || d.anioH)) {
+        nm = _MESES[(Number(d.mes)||1)-1] + ' ' + (d.anioD || d.anioH);
+      }
+      if (!nm) nm = doc.id;
+      DB.periodosById[doc.id] = {id:doc.id, nombre:nm, fechaInicio:d.fechaInicio||'', fechaFin:d.fechaFin||''};
+      if (nm) DB.periodosByNorm[_norm(nm)] = doc.id;
+      // Alias adicional: la UI puede formatear "Abril 2026" o "abril-2026" segun locale.
+      // Guardamos tambien el docId crudo y cualquier campo 'label' que venga del catalogo.
+      if (d.label) DB.periodosByNorm[_norm(d.label)] = doc.id;
+      DB.periodosByNorm[_norm(doc.id)] = doc.id;
+    });
 
-    // Precios
+    // ═ MIGRACIÓN IDS — construir índices por-id / por-nombre (ANTES de horarios/precios/socios) ═
+    buildIdIndexes();
+
+    // Horarios (depende de *ById para resolver nombres actuales)
+    DB.horarios = [];
+    horSnap.forEach(function(doc) { DB.horarios.push(horarioToRow(doc)); });
+    DB.horarios.sort(function(a,b){ var dias=['Lunes','Martes','Miercoles','Jueves','Viernes','Sabado','Domingo']; return dias.indexOf(a[0])-dias.indexOf(b[0]); });
+
+    // Precios (depende de actsById/catsById)
     DB.precios = [];
-    precSnap.forEach(function(doc){ var d=doc.data(); DB.precios.push({actividad:d.actividad||'',categoria:d.categoria||'',monto:Number(d.monto)||0,_row:doc.id}); });
+    precSnap.forEach(function(doc){
+      var d=doc.data();
+      var actNom = _nomByActId(d.actividadId) || d.actividad || '';
+      var catNom = _nomByCatId(d.categoriaId) || d.categoria || '';
+      DB.precios.push({
+        actividad: actNom, categoria: catNom, monto:Number(d.monto)||0, _row:doc.id,
+        actividadId: d.actividadId||'', categoriaId: d.categoriaId||'',
+        _legacy: { actividad: d.actividad||'', categoria: d.categoria||'' }
+      });
+    });
 
-    // Socios
+    // Socios (depende de *ById)
     DB.jugadores = [[]];
     sociosSnap.forEach(function(doc){ DB.jugadores.push(socioToRow(doc, doc.id)); });
     CARGA_COMPLETA = true;
@@ -2031,6 +2430,11 @@ function _fsDispatch(action, p, ok, err) {
       var dup = DB.jugadores.slice(1).find(function(f){ return (f[COL.DNI]||'').toString() === dniNorm; });
       if (dup){ cbErr('Ya existe un jugador con DNI ' + dniNorm + ' (' + (dup[COL.APELLIDO]||'') + ', ' + (dup[COL.NOMBRE]||'') + ')'); return; }
       var hoy = new Date().toLocaleDateString('sv');
+      var _catNom    = c.categoriaApp||c.categoria||'';
+      var _catSecNom = c.catSecundaria||'';
+      var _planNom   = c.plan||'';
+      var _actsNom   = c.actividades||'';
+      var _sedeNom   = c.sede||'';
       var doc = {
         apellido:c.apellido||'', nombre:c.nombre||'', email:c.email||'',
         celular:c.celular||c.telefono||'', telefono:c.telefono||'',
@@ -2038,10 +2442,16 @@ function _fsDispatch(action, p, ok, err) {
         fechaNac:c.fechaNac||'', sexo:c.sexo||'', domicilio:c.domicilio||'',
         obs:c.obs||'', membresia:'', vencimiento:'',
         fechaIngreso:c.fechaIngreso||hoy, creador:c.creador||'Admin',
-        categoriaApp:c.categoriaApp||c.categoria||'', plan:c.plan||'',
+        categoriaApp:_catNom, plan:_planNom,
         foto:c.foto||'', dniFoto:c.dniFoto||'', apto:c.apto||'',
         contacto1:c.contacto1||'', contacto2:c.contacto2||'', dniDorso:c.dniDorso||'',
-        actividades:c.actividades||'', saldo:0, catSecundaria:c.catSecundaria||''
+        actividades:_actsNom, saldo:0, catSecundaria:_catSecNom,
+        // ── IDs estables (migración Fase 1) ──
+        categoriaAppId:    _catNom    ? resolveCatId(_catNom)    : '',
+        catSecundariaId:   _catSecNom ? resolveCatId(_catSecNom) : '',
+        planId:            _planNom   ? resolveActId(_planNom)   : '',
+        actividadesIds:    _actsNom   ? resolveActIdsCsv(_actsNom) : [],
+        sedeId:            _sedeNom   ? resolveSedeId(_sedeNom)  : ''
       };
       db.collection('socios').doc(dniNorm).set(doc)
         .then(function(){ _contarEscrituras(1); DB.jugadores.push(socioToRow({data:function(){return doc;},id:dniNorm}, dniNorm)); renderPlayers(); cb({ok:true}); })
@@ -2055,19 +2465,23 @@ function _fsDispatch(action, p, ok, err) {
       var upd = {};
       var fieldMap = {
         apellido:'apellido', nombre:'nombre', email:'email', celular:'celular',
-        telefono:'telefono', fechaNac:'fechaNac', sexo:'sexo', genero:'sexo',
-        domicilio:'domicilio', obs:'obs',
-        categoriaApp:'categoriaApp', categoria:'categoriaApp',
-        catSecundaria:'catSecundaria',
+        telefono:'telefono', fechaNac:'fechaNac', sexo:'sexo', genero:'sexo', domicilio:'domicilio',
+        obs:'obs', categoriaApp:'categoriaApp', categoria:'categoriaApp', catSecundaria:'catSecundaria',
         plan:'plan', membresia:'membresia', vencimiento:'vencimiento',
         foto:'foto', dniFoto:'dniFoto', apto:'apto', dniDorso:'dniDorso',
-        actividades:'actividades', activo:'activo',
+        actividades:'actividades', activo:'activo', sede:'sede',
         contacto1:'contacto1', contacto2:'contacto2'
       };
       Object.keys(campos).forEach(function(k){
         if(fieldMap[k] && campos[k] !== undefined) upd[fieldMap[k]] = campos[k];
       });
       if (campos.activo !== undefined) upd.activo = campos.activo === 'true' || campos.activo === true;
+      // ── Migración Fase 1: escribir *Id junto a los nombres ──
+      if (upd.categoriaApp    !== undefined) upd.categoriaAppId    = upd.categoriaApp    ? resolveCatId(upd.categoriaApp)    : '';
+      if (upd.catSecundaria   !== undefined) upd.catSecundariaId   = upd.catSecundaria   ? resolveCatId(upd.catSecundaria)   : '';
+      if (upd.plan            !== undefined) upd.planId            = upd.plan            ? resolveActId(upd.plan)            : '';
+      if (upd.actividades     !== undefined) upd.actividadesIds    = upd.actividades     ? resolveActIdsCsv(upd.actividades) : [];
+      if (upd.sede            !== undefined) upd.sedeId            = upd.sede            ? resolveSedeId(upd.sede)           : '';
       db.collection('socios').doc(dniNorm).update(upd)
         .then(function(){ _contarEscrituras(1);
           // Actualizar en cache local
@@ -2118,13 +2532,20 @@ function _fsDispatch(action, p, ok, err) {
     // ── CUOTAS / PAGOS ────────────────────────────────────────────
     case 'registrarPago': {
       var pg = p.pago || p;
+      var _planNomC = pg.plan||pg.concepto||'';
+      var _perNomC  = pg.periodo||'';
       var docData = {
         dni: normDoc(pg.doc||pg.dni||''), nombre:pg.nombre||'',
-        plan:pg.plan||pg.concepto||'', concepto:pg.concepto||pg.plan||'',
+        plan:_planNomC, concepto:pg.concepto||pg.plan||'',
         periodoDesde:pg.periodoDesde||'', periodoHasta:pg.periodoHasta||'',
         fechaPago:pg.fechaPago||'', monto:Number(pg.monto)||0,
         metodo:pg.metodo||'', cobrador:pg.cobrador||'', obs:pg.obs||'',
-        periodo:pg.periodo||'', ts:Date.now()
+        periodo:_perNomC, ts:Date.now(),
+        // ── Migración Fase 1: ids + snapshot de nombre para histórico ──
+        planId:      _planNomC ? resolveActId(_planNomC)     : '',
+        planNombre:  _planNomC,  // snapshot histórico (nunca se actualiza en rename)
+        periodoId:   _perNomC  ? resolvePeriodoId(_perNomC)  : '',
+        periodoNombre:_perNomC
       };
       db.collection('cuotas').add(docData)
         .then(function(ref){ _contarEscrituras(1); cb({ok:true, id:ref.id}); })
@@ -2135,10 +2556,13 @@ function _fsDispatch(action, p, ok, err) {
     // ── INSCRIPCIONES ─────────────────────────────────────────────
     case 'addInscripcion': {
       var row = p.rowArray || [];
+      var _planNomI = row[2]||'';
       var docInsc = {
-        dni:normDoc(row[0]||''), nombre:row[1]||'', plan:row[2]||'',
+        dni:normDoc(row[0]||''), nombre:row[1]||'', plan:_planNomI,
         monto:Number(row[3])||0, desde:row[4]||'', hasta:row[5]||'',
-        obs:row[6]||'', descuentoHno:Number(row[7])||0, hnoDe:row[8]||''
+        obs:row[6]||'', descuentoHno:Number(row[7])||0, hnoDe:row[8]||'',
+        // ── Migración Fase 1 ──
+        planId: _planNomI ? resolveActId(_planNomI) : ''
       };
       db.collection('inscripciones').add(docInsc)
         .then(function(ref){ cb({ok:true, fila:ref.id}); })
@@ -2170,14 +2594,17 @@ function _fsDispatch(action, p, ok, err) {
         return true;
       });
       var batch = db.batch();
+      var _planNomM = p.actividades||'';
+      var _planIdM  = _planNomM ? resolveActId(_planNomM) : '';
       sociosMasiva.forEach(function(f){
         var dniM = normDoc(f[COL.DNI]||'');
         var ref = db.collection('inscripciones').doc();
         batch.set(ref, {
           dni:dniM, nombre:(f[COL.APELLIDO]||'')+' '+(f[COL.NOMBRE]||''),
-          plan:p.actividades||'', monto:0,
+          plan:_planNomM, monto:0,
           desde:p.desde||'', hasta:p.hasta||'', obs:p.obs||'',
-          descuentoHno:0, hnoDe:''
+          descuentoHno:0, hnoDe:'',
+          planId:_planIdM
         });
       });
       batch.commit()
@@ -2188,7 +2615,13 @@ function _fsDispatch(action, p, ok, err) {
 
     // ── PRECIOS ───────────────────────────────────────────────────
     case 'savePrecio': {
-      var precData = {actividad:p.actividad||'', categoria:p.categoria||'', monto:Number(p.monto)||0};
+      var _actP = p.actividad||''; var _catP = p.categoria||'';
+      var precData = {
+        actividad:_actP, categoria:_catP, monto:Number(p.monto)||0,
+        // ── Migración Fase 1 ──
+        actividadId: _actP ? resolveActId(_actP) : '',
+        categoriaId: _catP ? resolveCatId(_catP) : ''
+      };
       var ref = p.rowIndex
         ? db.collection('config_precios').doc(p.rowIndex.toString())
         : db.collection('config_precios').doc();
@@ -2340,6 +2773,15 @@ function _fsDispatch(action, p, ok, err) {
       var citData = Object.assign({}, p);
       delete citData.action; delete citData.pass; delete citData.token;
       citData.fechaCreacion = citData.fechaCreacion || new Date().toLocaleDateString('sv');
+      // ── Migración Fase 1: resolver ids + snapshot de nombres para histórico ──
+      if (citData.actividad && citData.actividadId === undefined) {
+        citData.actividadId = resolveActId(citData.actividad);
+        citData.actividadNombre = citData.actividad;  // snapshot (no se toca en rename)
+      }
+      if (citData.categoria && citData.categoriaId === undefined) {
+        citData.categoriaId = resolveCatId(citData.categoria);
+        citData.categoriaNombre = citData.categoria;
+      }
       if (citData.id) {
         var citId = citData.id; delete citData.id;
         db.collection('citaciones').doc(citId).set(citData)
@@ -2422,7 +2864,18 @@ function _fsDispatch(action, p, ok, err) {
 // ── Convertir rowArray → doc según tabName ────────────────────────
 function _rowToDoc(tabName, row) {
   switch(tabName) {
-    case 'Horarios': return {dia:row[0]||'',hora:row[1]||'',sede:row[2]||'',profesores:row[3]||'',grupo:row[4]||'',liga:row[5]||'',modalidad:row[6]||'Mixto', idx: Date.now()};
+    case 'Horarios': {
+      var _sedeH = row[2]||''; var _profH = row[3]||''; var _grpH = row[4]||''; var _actH = row[5]||'';
+      return {
+        dia:row[0]||'', hora:row[1]||'', sede:_sedeH, profesores:_profH,
+        grupo:_grpH, liga:_actH, modalidad:row[6]||'Mixto', idx: Date.now(),
+        // ── Migración Fase 1 ──
+        sedeId:         _sedeH ? resolveSedeId(_sedeH) : '',
+        categoriaId:    _grpH  ? resolveCatId(_grpH)   : '',
+        actividadId:    _actH  ? resolveActId(_actH)   : '',
+        profesoresIds:  _profH ? resolveProfesIdsCsv(_profH) : []
+      };
+    }
     case 'Profesores': {
       var dniP = normDoc(row[1]||'');
       // También crear usuario en Firebase Auth para el profe
@@ -2437,7 +2890,15 @@ function _rowToDoc(tabName, row) {
         telegramChatId:   row[6]||''
       };
     }
-    case 'Config_Categorias': return {nombre:row[0]||'',color:row[1]||'',edadDesde:String(row[2]||''),edadHasta:String(row[3]||''),genero:row[4]||'Mixto',actividades:row[5]||''};
+    case 'Config_Categorias': {
+      var _actCsvC = row[5]||'';
+      return {
+        nombre:row[0]||'', color:row[1]||'', edadDesde:String(row[2]||''),
+        edadHasta:String(row[3]||''), genero:row[4]||'Mixto', actividades:_actCsvC,
+        // ── Migración Fase 1 ──
+        actividadesIds: _actCsvC ? resolveActIdsCsv(_actCsvC) : []
+      };
+    }
     case 'Sedes': return {nombre:row[0]||''};
     case 'Config_Periodos': return {mes:row[0]||1,anioD:row[1]||2025,diaD:row[2]||1,anioH:row[3]||row[1]||2025,diaH:row[4]||0,gracia:row[5]||5,desc:row[6]||''};
     case 'Actividades': return {nombre:row[0]||'',icono:row[1]||'',color:row[2]||'#555',monto:Number(row[3])||0};
@@ -2529,6 +2990,7 @@ function getDriveDisplay(url) {
   return 'https://lh3.googleusercontent.com/d/' + m[1];
 }
 
+// Icono de actividad: puede ser emoji (texto) o URL de imagen (Drive o externa)
 function iconoEsUrl(s){ return typeof s === 'string' && /^https?:\/\//i.test(s.trim()); }
 function iconoHTML(icono, size){
   if(!icono) return '';
@@ -2665,11 +3127,14 @@ function confirmarInscripcion() {
 }
 
 function darDeBajaInscripcion(rowIndex, dni) {
+  // QA-011: rowIndex llega siempre como string desde onclick (wrappeado en quotes).
+  // Normalizar: si es numerico -> Number, si es docId -> string.
+  var _ri = (typeof rowIndex === 'string' && /^\d+$/.test(rowIndex)) ? Number(rowIndex) : rowIndex;
   sgdConfirm('Dar de baja esta inscripcion desde hoy?', function() {
   var hoy = new Date().toISOString().split('T')[0];
   mostrarLoader('Actualizando...');
-  callScript({action:'updateInscripcion', rowIndex:rowIndex, hasta:hoy, pass:TOKEN, _noRetry:true}, function(){
-    var insc = DB.inscripciones.find(function(i){ return i._row === rowIndex; });
+  callScript({action:'updateInscripcion', rowIndex:_ri, hasta:hoy, pass:TOKEN, _noRetry:true}, function(){
+    var insc = DB.inscripciones.find(function(i){ return String(i._row) === String(_ri); });
     if(insc) insc.hasta = hoy;
     renderInscripcionesModal(dni);
     ocultarLoader();
@@ -2680,10 +3145,12 @@ function darDeBajaInscripcion(rowIndex, dni) {
 }
 
 function reactivarInscripcion(rowIndex, dni) {
+  // QA-011: rowIndex llega como string desde onclick — normalizar.
+  var _ri = (typeof rowIndex === 'string' && /^\d+$/.test(rowIndex)) ? Number(rowIndex) : rowIndex;
   sgdConfirm('Reactivar esta inscripcion?<br><br>Se quita la fecha de baja y vuelve a considerarse vigente.', function() {
     mostrarLoader('Reactivando...');
-    callScript({action:'updateInscripcion', rowIndex:rowIndex, hasta:'', pass:TOKEN, _noRetry:true}, function(){
-      var insc = DB.inscripciones.find(function(i){ return i._row === rowIndex; });
+    callScript({action:'updateInscripcion', rowIndex:_ri, hasta:'', pass:TOKEN, _noRetry:true}, function(){
+      var insc = DB.inscripciones.find(function(i){ return String(i._row) === String(_ri); });
       if(insc) insc.hasta = '';
       renderInscripcionesModal(dni);
       ocultarLoader();
@@ -2694,10 +3161,12 @@ function reactivarInscripcion(rowIndex, dni) {
 }
 
 function eliminarInscripcion(rowIndex, dni) {
+  // QA-011: rowIndex llega como string desde onclick — normalizar.
+  var _ri = (typeof rowIndex === 'string' && /^\d+$/.test(rowIndex)) ? Number(rowIndex) : rowIndex;
   sgdConfirm('<b>Eliminar</b> esta inscripcion?<br><br>Se borra permanentemente del sistema. Usalo solo si fue creada por error — los calculos de deuda historica de esta inscripcion desapareceran.', function() {
     mostrarLoader('Eliminando inscripcion...');
-    callScript({action:'deleteInscripcion', rowIndex:rowIndex, pass:TOKEN, _noRetry:true}, function(){
-      var idx = DB.inscripciones.findIndex(function(i){ return i._row === rowIndex; });
+    callScript({action:'deleteInscripcion', rowIndex:_ri, pass:TOKEN, _noRetry:true}, function(){
+      var idx = DB.inscripciones.findIndex(function(i){ return String(i._row) === String(_ri); });
       if(idx >= 0) DB.inscripciones.splice(idx, 1);
       renderInscripcionesModal(dni);
       ocultarLoader();
@@ -3223,6 +3692,21 @@ function confirmarPago() {
       var extraMonto = Number(document.getElementById('mp-extra-monto').value)||0;
       if(extraMonto > 0) pagos.push({plan: extraDesc, monto: extraMonto});
     }
+    // QA-014: si el usuario edito #mp-monto a un total distinto del sugerido
+    // por la suma de los data-monto, respetar ese override.
+    //   - 1 solo pago: el monto manual se aplica directo a ese pago.
+    //   - multiples pagos: se escala proporcionalmente cada monto para que
+    //     la suma sea igual al total editado.
+    var _montoManual = Number((document.getElementById('mp-monto')||{}).value) || 0;
+    var _montoSug    = pagos.reduce(function(s,p){ return s + p.monto; }, 0);
+    if (_montoManual > 0 && pagos.length > 0 && Math.abs(_montoManual - _montoSug) > 0.5) {
+      if (pagos.length === 1) {
+        pagos[0].monto = _montoManual;
+      } else if (_montoSug > 0) {
+        var _factor = _montoManual / _montoSug;
+        pagos.forEach(function(p){ p.monto = Math.round(p.monto * _factor); });
+      }
+    }
   }
 
   if(pagos.length === 0) {
@@ -3381,8 +3865,8 @@ function poblarTurnosAsist() {
   sel.innerHTML = '<option value="">-- Seleccionar turno --</option>';
   DB.horarios.forEach(function(h, i){
     if((h[0]||'').toString().toLowerCase() === diaSel.toLowerCase()){
-      var hora = h[1]||'', cat = h[4]||'', sede = h[2]||'';
-      var liga = (h[5]||'').toString().trim();
+      var hora = h[1]||'', cat = horarioCatNombre(h)||'', sede = horarioSedeNombre(h)||'';
+      var liga = (horarioActNombre(h)||h[5]||'').toString().trim();
       var tid = fecha + '_' + i + '_' + cat;
       var ligaLabel = (liga && liga !== 'Ambas') ? ' [' + liga + ']' : '';
       var lbl = diaSel + ' ' + hora + ' hs - ' + cat + ligaLabel + (sede ? ' (' + sede + ')' : '');
@@ -3846,7 +4330,13 @@ function guardarJ() {
   // Leer actividades seleccionadas
   var actChecks = document.querySelectorAll('#m-actividades-checks input[name="act_check"]:checked');
   var actSeleccionadas = Array.from(actChecks).map(function(cb){ return cb.value; }).join(',');
-  // Campos siempre enviados (edición directa en el modal)
+  // Campos "stale" — solo enviar si cambiaron vs cache (previene pisar datos escritos por datos.html)
+  var emailNew = getV('mi-email');     var emailOld = (f[COL.EMAIL]||'').toString();
+  var celNew   = getV('mi-celular');   var celOld   = (f[COL.CELULAR]||'').toString();
+  var domNew   = getV('mi-domicilio'); var domOld   = (f[COL.DOMICILIO]||'').toString();
+  var obsNew   = getV('mi-obs');       var obsOld   = (f[COL.OBS]||'').toString();
+  var c1Old    = (f[COL.CONTACTO1]||'').toString();
+  var c2Old    = (f[COL.CONTACTO2]||'').toString();
   var campos = {
     genero:        document.getElementById('m-genero').value,
     activo:        document.getElementById('m-estado').value === 'true',
@@ -3854,13 +4344,6 @@ function guardarJ() {
     catSecundaria: document.getElementById('m-cat-sec').value,
     actividades:   actSeleccionadas
   };
-  // Campos potencialmente "stale" → solo enviar si cambiaron vs cache (previene pisar datos escritos por datos.html)
-  var emailNew = getV('mi-email');     var emailOld = (f[COL.EMAIL]||'').toString();
-  var celNew   = getV('mi-celular');   var celOld   = (f[COL.CELULAR]||'').toString();
-  var domNew   = getV('mi-domicilio'); var domOld   = (f[COL.DOMICILIO]||'').toString();
-  var obsNew   = getV('mi-obs');       var obsOld   = (f[COL.OBS]||'').toString();
-  var c1Old    = (f[COL.CONTACTO1]||'').toString();
-  var c2Old    = (f[COL.CONTACTO2]||'').toString();
   if (emailNew !== emailOld) campos.email     = emailNew;
   if (celNew   !== celOld)   campos.celular   = celNew;
   if (domNew   !== domOld)   campos.domicilio = domNew;
@@ -4324,7 +4807,7 @@ function renderListActividades() {
       return '<div class="item-row">'
         + '<span style="display:flex;align-items:center;gap:8px;">'
         + '<span class="emoji" style="font-size:20px;">' + iconoHTML(a.icono, 22) + '</span>'
-        + '<strong>' + a.nombre + '</strong>'
+        + '<strong>' + esc(a.nombre) + '</strong>'
         + '<span style="width:14px;height:14px;border-radius:50%;background:' + (a.color||'#888') + ';display:inline-block;"></span>'
         + '</span>'
         + '<span style="display:flex;gap:4px;">'
@@ -4353,8 +4836,9 @@ function editarActividad(row){
   _actEditandoRow = a._row;
   var nomEl = document.getElementById('actNom');
   nomEl.value = a.nombre || '';
-  nomEl.readOnly = true;
-  nomEl.style.opacity = '0.7';
+  // QA-019: permitir rename de actividad desde edicion.
+  nomEl.readOnly = false;
+  nomEl.style.opacity = '1';
   var iconoVal = a.icono || '';
   var urlInput = document.getElementById('actIconoUrl');
   var disp = document.getElementById('emoji-selected');
@@ -4392,19 +4876,45 @@ function cancelarEdicionActividad(){
 function guardarEdicionActividad(){
   var row = _actEditandoRow;
   if(!row) return;
+  // QA-019: permitir renombrar la actividad, no solo icono/color.
+  var nom = (document.getElementById('actNom')||{}).value;
+  nom = nom ? nom.trim() : '';
   var urlImg = (document.getElementById('actIconoUrl')||{}).value;
   urlImg = urlImg ? urlImg.trim() : '';
   var icono = iconoEsUrl(urlImg) ? urlImg : document.getElementById('actIcono').value.trim();
   var color = document.getElementById('actColor').value;
   mostrarLoader('Actualizando...');
-  db.collection('config_actividades').doc(row).update({icono:icono, color:color})
+  // QA-015: capturar nombre viejo para refrescar selects cacheados.
+  var _a = (DB.actividades||[]).find(function(x){ return String(x._row) === String(row); });
+  var _nombreViejoAct = (_a && _a.nombre) ? _a.nombre : '';
+  var upd = {icono:icono, color:color};
+  if (nom && nom !== _nombreViejoAct) upd.nombre = nom;
+  db.collection('config_actividades').doc(row).update(upd)
     .then(function(){
       var a = (DB.actividades||[]).find(function(x){ return String(x._row) === String(row); });
-      if(a){ a.icono = icono; a.color = color; }
+      if(a){
+        a.icono = icono;
+        a.color = color;
+        if (nom) a.nombre = nom;
+      }
+      // QA-019 + QA-015: si hubo rename, refrescar indices y rows resueltos
+      // ademas de repoblar selects y actualizar options cacheadas.
+      if (nom && nom !== _nombreViejoAct) {
+        if (typeof buildIdIndexes === 'function') buildIdIndexes();
+        if (typeof _refreshResolvedRows === 'function') _refreshResolvedRows();
+        _renombrarOptionsEnSelects(_nombreViejoAct, nom);
+      }
       cancelarEdicionActividad();
       renderListActividades();
       poblarSelects(); poblarSelectActividad(); poblarSelectsPrecios();
       poblarSelectMasiva(); renderCatActsCheckboxes('');
+      if (nom && nom !== _nombreViejoAct) {
+        if (typeof renderPlayers === 'function') renderPlayers();
+        if (typeof renderHorarios === 'function') renderHorarios();
+        if (typeof renderListPrecios === 'function') renderListPrecios();
+        if (typeof renderCuotas === 'function') renderCuotas();
+        if (typeof renderInscripciones === 'function') renderInscripciones();
+      }
       ocultarLoader();
       toast('Actividad actualizada', 'ok');
     })
@@ -4418,6 +4928,7 @@ function onActIconoUrlInput(){
     document.getElementById('actIcono').value = url;
     if(disp) disp.innerHTML = iconoHTML(url, 22);
   } else if(!url){
+    // Volver al emoji elegido en el grid (si habia)
     var emojiActual = (document.getElementById('actIcono').value||'').trim();
     if(iconoEsUrl(emojiActual)){
       document.getElementById('actIcono').value = '';
@@ -4425,7 +4936,6 @@ function onActIconoUrlInput(){
     }
   }
 }
-
 function guardarActividad() {
   if(_actEditandoRow){ return guardarEdicionActividad(); }
   var nom   = document.getElementById('actNom').value.trim();
@@ -4616,11 +5126,14 @@ function restaurarSocio() {
     var snapshot = {};
     for(var k in f){ if(Object.prototype.hasOwnProperty.call(f,k) && k.indexOf('_') !== 0) snapshot[k] = f[k]; }
     var del = firebase.firestore.FieldValue.delete();
+    // QA-020: al restaurar, devolver activo:true para que el socio vuelva
+    // al flujo normal sin requerir un paso manual extra en la ficha.
     db.collection('socios').doc(dni).update({
       eliminado: del,
       eliminadoEn: del,
       eliminadoPor: del,
-      motivoEliminacion: del
+      motivoEliminacion: del,
+      activo: true
     }).then(function(){
       return db.collection('auditoria_socios').add({
         accion: 'restaurar', dni: dni, fecha: ts, usuario: usuario,
@@ -4631,6 +5144,10 @@ function restaurarSocio() {
       f._eliminadoEn = null;
       f._eliminadoPor = '';
       f._motivoEliminacion = '';
+      // QA-020: reflejar activo:true en memoria.
+      if (typeof COL !== 'undefined' && COL && typeof COL.ACTIVO === 'number') {
+        f[COL.ACTIVO] = true;
+      }
       ocultarLoader();
       cerrarModal();
       renderPlayers();
@@ -4639,20 +5156,18 @@ function restaurarSocio() {
   }, 'RESTAURAR');
 }
 
-// Convertir un socio/jugador en profesor — mantiene el doc en /socios/ intacto
-// (por si el profe también juega). Usa REST signUp para no desloguear al admin.
 function convertirSocioAProfe() {
-  if (!itemSel || !itemSel.dni) return alert('Abrí primero la ficha de un jugador');
+  if (!itemSel || !itemSel.dni) return alert('Abr\u00ed primero la ficha de un jugador');
   var dni = itemSel.dni.toString();
   var f = DB.jugadores[itemSel.arrIdx]; if (!f) return;
   var nombreCompleto = (f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'');
   if (DB.profesores.some(function(p){ return (p[5]||'').toString() === dni || (p[1]||'').toString() === dni; })) {
     return alert('Ya existe un profesor con DNI ' + dni);
   }
-  sgdConfirm('Convertir a <b>' + nombreCompleto + '</b> (DNI ' + dni + ') en profesor?<br><br>El socio se mantiene en la base. Vas a necesitar definir una contraseña para que pueda entrar en la app de personal.', function() {
-    var pass = prompt('Contraseña para el profesor (mínimo 6 caracteres):', dni);
+  sgdConfirm('Convertir a <b>' + nombreCompleto + '</b> (DNI ' + dni + ') en profesor?<br><br>El socio se mantiene en la base. Vas a necesitar definir una contrase\u00f1a para que pueda entrar en la app de personal.', function() {
+    var pass = prompt('Contrase\u00f1a para el profesor (m\u00ednimo 6 caracteres):', dni);
     if (!pass) return;
-    if (pass.length < 6) return alert('La contraseña debe tener al menos 6 caracteres');
+    if (pass.length < 6) return alert('La contrase\u00f1a debe tener al menos 6 caracteres');
     _convertirSocioAProfeConfirmado(dni, nombreCompleto, pass, f);
   }, 'CONVERTIR');
 }
@@ -4726,7 +5241,18 @@ function guardarProfesor() {
     } else {
       DB.profesores.push(nuevo);
     }
+    // FASE 2: refrescar indices por DNI y nombres de horarios cacheados
+    buildIdIndexes();
+    _refreshResolvedRows();
     cancelarEditProfesor(); renderListProfesores(); poblarSelects(); poblarTurnosAsist();
+    // QA-018: rename de profe debe propagar a la UI de horarios, cuotas,
+    // inscripciones y jugadores que ya esten renderizados en pantalla.
+    if (typeof renderHorarios === 'function') renderHorarios();
+    if (typeof renderListHorarios === 'function') renderListHorarios();
+    if (typeof renderPlayers === 'function') renderPlayers();
+    if (typeof renderListPrecios === 'function') renderListPrecios();
+    if (typeof renderCuotas === 'function') renderCuotas();
+    if (typeof renderInscripciones === 'function') renderInscripciones();
     ocultarLoader(); toast('Instructor guardado', 'ok');
   };
   var err = function(e) { ocultarLoader(); alert('Error: ' + e); };
@@ -4862,8 +5388,32 @@ function guardarCat() {
     limpiarFormCat();
     poblarSelectMasiva();
   };
-  var cb = function(){ reset(); renderListCat(); poblarSelects(); poblarSelectMasiva(); renderPlayers(); ocultarLoader(); toast(T('grupo') + ' guardada', 'ok'); };
-  if(catEditIdx) callScript({action:'updateAdminItem', tabName:'Config_Categorias', rowIndex:catEditIdx, rowArray:d, pass:TOKEN, _noRetry:true}, cb, function(e){ reset(); ocultarLoader(); alert('Error: '+e); });
+  var cb = function(){ reset(); renderListCat(); poblarSelects(); poblarSelectMasiva(); renderPlayers(); if(typeof renderListPrecios==='function') renderListPrecios(); if(typeof renderHorarios==='function') renderHorarios(); if(typeof renderCuotas==='function') renderCuotas(); if(typeof renderInscripciones==='function') renderInscripciones(); ocultarLoader(); toast(T('grupo') + ' guardada', 'ok'); };
+  if(catEditIdx) {
+    // QA-015: capturar nombre viejo ANTES del reemplazo para actualizar
+    // options cacheadas en selects abiertos (modales pre-renderizados).
+    var _nombreViejoCat = '';
+    for (var _j=0; _j<DB.categorias.length; _j++) {
+      if (DB.categorias[_j][DB.categorias[_j].length-1] === catEditIdx) {
+        _nombreViejoCat = DB.categorias[_j][0] || '';
+        break;
+      }
+    }
+    callScript({action:'updateAdminItem', tabName:'Config_Categorias', rowIndex:catEditIdx, rowArray:d, pass:TOKEN, _noRetry:true}, function(){
+      // FASE 2: actualizar DB.categorias local + refrescar indices y nombres resueltos en rows
+      for (var _i=0; _i<DB.categorias.length; _i++) {
+        if (DB.categorias[_i][DB.categorias[_i].length-1] === catEditIdx) {
+          DB.categorias[_i] = d.concat([catEditIdx]);
+          break;
+        }
+      }
+      buildIdIndexes();
+      _refreshResolvedRows();
+      // QA-015: renombrar options cacheadas en cualquier <select> del documento.
+      _renombrarOptionsEnSelects(_nombreViejoCat, d[0]);
+      cb();
+    }, function(e){ reset(); ocultarLoader(); alert('Error: '+e); });
+  }
   else callScript({action:'addComplexItem', tabName:'Config_Categorias', rowArray:d, pass:TOKEN, _noRetry:true}, function(r){
     var _newId = r && r.fila ? r.fila.toString() : ('cat_' + Date.now());
     DB.categorias.push(d.concat([_newId]));
@@ -5142,7 +5692,7 @@ function renderHorarios() {
     return '<div class="item-row" style="border-left:4px solid var(--secondary);flex-direction:column;align-items:flex-start;">'
       + '<div style="display:flex;justify-content:space-between;width:100%;margin-bottom:4px;"><strong>' + h[0] + ' ' + h[1] + ' hs</strong>'
       + '<button class="icon-btn" style="color:var(--red);" data-action="borrar" data-tabla="Horarios" data-row="' + rowId + '">X</button></div>'
-      + '<small style="color:var(--muted);">Sede: ' + (h[2]||'-') + ' | ' + T('grupo') + ': ' + (h[4]||'-') + (h[5] ? ' | Actividad: ' + h[5] : '') + ' | Modalidad: ' + (h[6]||'Mixto') + '</small>'
+      + '<small style="color:var(--muted);">Sede: ' + (horarioSedeNombre(h)||'-') + ' | ' + T('grupo') + ': ' + (horarioCatNombre(h)||'-') + ((horarioActNombre(h)||h[5]) ? ' | Actividad: ' + (horarioActNombre(h)||h[5]) : '') + ' | Modalidad: ' + (h[6]||'Mixto') + '</small>'
       + '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;width:100%;"><small style="color:var(--muted);margin-right:4px;">Instructores:</small>' + profesChips + ' ' + addSelect + '</div>'
       + '</div>';
   }).join('');
@@ -5168,6 +5718,9 @@ function _updateProfesHorario(rowId, newProfesList) {
   mostrarLoader('Actualizando instructores...');
   callScript({action:'updateAdminItem', tabName:'Horarios', rowIndex: rowId, rowArray: row, pass:TOKEN, _noRetry:true}, function(r){
     DB.horarios[idx][3] = newCsv;
+    // FASE 2: mantener profesoresIds sincronizado con el CSV recien guardado
+    DB.horarios[idx].profesoresIds = newCsv ? resolveProfesIdsCsv(newCsv).filter(function(x){ return x && x !== '__UNRESOLVED__'; }) : [];
+    if (DB.horarios[idx]._legacy) DB.horarios[idx]._legacy.profesores = newCsv;
     renderHorarios();
     if (typeof poblarTurnosAsist === 'function') poblarTurnosAsist();
     ocultarLoader();
@@ -6832,13 +7385,9 @@ function citCargarJugadores() {
 }
 
 // ── CUERPO TECNICO ────────────────────────────────────────────────
-// Profesores disponibles: todos los de DB.profesores, enriqueciendo
-// con foto/apellido/nombre desde DB.jugadores cuando el DNI coincide
-// (si el profe fue cargado previamente como jugador y despues convertido).
 function citCargarProfes() {
   CIT.profesDisp = [];
   CIT.profesSel = {};
-  // Indice rapido DNI -> fila de DB.jugadores
   var jugByDni = {};
   DB.jugadores.slice(1).forEach(function(f) {
     var d = String(f[COL.DNI] || f[COL.TARJETA] || '').trim();
@@ -6856,7 +7405,6 @@ function citCargarProfes() {
       foto     = getDriveDisplay(fila[COL.FOTO] || '');
       fechaNac = String(fila[COL.FECHA_NAC] || '').trim() || fechaNac;
     } else {
-      // Fallback: parsear p[0] "APELLIDO, NOMBRE"
       var nm = String(p[0] || '').trim();
       if (nm.indexOf(',') >= 0) {
         var partes = nm.split(',');
@@ -7415,7 +7963,8 @@ function ejecutarRecategorizacion() {
   // 2. Actualizar categoría de cada alumno en Firestore
   _recatPreview.cambios.forEach(function(cambio) {
     db.collection('socios').doc(cambio.dni).update({
-      categoriaApp: cambio.catNueva
+      categoriaApp:   cambio.catNueva,
+      categoriaAppId: cambio.catNueva ? resolveCatId(cambio.catNueva) : ''
     }).then(checkDone).catch(function(e){ errores++; checkDone(); });
   });
 
