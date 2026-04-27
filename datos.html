@@ -536,7 +536,7 @@ video{width:100%;display:block;}
 
 <!-- TOAST -->
 <div id="toast"></div>
-<div id="version-badge">v1.10</div>
+<div id="version-badge">v1.11</div>
 
 <!-- ═══════════════════════════════════════════════════════════════ -->
 <!-- FIREBASE SDK                                                   -->
@@ -783,10 +783,26 @@ function buscarSocioPorDni(dni) {
 // ══════════════════════════════════════════════════════════════════
 // FIRESTORE — guardar socio
 // ══════════════════════════════════════════════════════════════════
+// Garantiza que haya un usuario anonimo logueado antes de tocar Firestore.
+// Si el signInAnonymously inicial fallo (red movil flaky, ad-blocker, SW viejo),
+// reintentamos aca antes de mandar la escritura — sino Firestore tira "Missing or
+// insufficient permissions" porque request.auth = null en las rules.
+function _asegurarAuth() {
+  if (auth.currentUser) return Promise.resolve();
+  try { console.log('[datos] auth.currentUser=null, reintentando signInAnonymously...'); } catch(_){}
+  return auth.signInAnonymously().then(function(){
+    try { console.log('[datos] signInAnonymously OK, uid=', auth.currentUser && auth.currentUser.uid); } catch(_){}
+  });
+}
+
 function guardarSocioFirestore(dni, campos, esNuevo) {
   var dniNorm = normalizarDni(dni);
   var ref = db.collection('socios').doc(dniNorm);
 
+  return _asegurarAuth().then(function(){ return _guardarSocioImpl(ref, dniNorm, campos, esNuevo); });
+}
+
+function _guardarSocioImpl(ref, dniNorm, campos, esNuevo) {
   if (esNuevo) {
     var hoy = new Date().toLocaleDateString('sv'); // yyyy-mm-dd
     var doc = {
