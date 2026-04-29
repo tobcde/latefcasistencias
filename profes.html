@@ -405,7 +405,7 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);over
 </div>
 
 <div id="toast"></div>
-<div id="vbadge">v2.2-late</div>
+<div id="vbadge">v2.3-late</div>
 
 <!-- FIREBASE SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -836,6 +836,9 @@ function cargarDatos() {
       document.getElementById('perfil-dni').innerText    = PROF.dni;
       document.getElementById('perfil-email').innerText  = PROF.email || '—';
       renderTurnosPerfil();
+      // Refrescar el dropdown de turnos AHORA que DB.horarios esta cargado
+      // (iniciarFecha() corrio antes de que terminen las queries -> dropdown vacio)
+      try { poblarTurnos(); } catch(_e){}
       return;
     }
 
@@ -873,6 +876,9 @@ function cargarDatos() {
         document.getElementById('perfil-dni').innerText    = PROF.dni;
         document.getElementById('perfil-email').innerText  = PROF.email || '—';
         renderTurnosPerfil();
+        // Refrescar el dropdown de turnos AHORA que DB.horarios esta cargado
+        // (iniciarFecha() corrio antes de que terminen las queries -> dropdown vacio)
+        try { poblarTurnos(); } catch(_e){}
       });
   })
   .catch(function(e) {
