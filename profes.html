@@ -405,7 +405,7 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);over
 </div>
 
 <div id="toast"></div>
-<div id="vbadge">v2.1-late</div>
+<div id="vbadge">v2.2-late</div>
 
 <!-- FIREBASE SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -1157,7 +1157,16 @@ function poblarTurnos() {
     sel.innerHTML += '<option value="'+tid+'">'+fmtHora(h.hora)+'hs - '+grupoLabel+(liga2&&liga2!=='Ambas'?' ['+liga2+']':'')+(h.sede?' ('+h.sede+')':'')+'</option>';
     count++;
   });
-  if (diaFecha && count === 0) sel.innerHTML = '<option value="">Sin turnos para este día</option>';
+  if (diaFecha && count === 0) {
+    // Buscamos los dias de la semana en los que el profe SI tiene turnos para sugerir
+    var diasConTurnos = [];
+    DB.horarios.forEach(function(h){
+      var d = (h.dia||'').trim();
+      if(d && diasConTurnos.indexOf(d) < 0) diasConTurnos.push(d);
+    });
+    var sugerencia = diasConTurnos.length ? ' (tus dias: ' + diasConTurnos.join(', ') + ')' : '';
+    sel.innerHTML = '<option value="">Sin turnos el ' + diaFecha + sugerencia + ' &mdash; cambia la fecha arriba</option>';
+  }
   ocultarLista();
 }
 
