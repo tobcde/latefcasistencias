@@ -855,6 +855,8 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
         <option value="asist_por_dia">Asistencia por dia</option>
         <option value="ranking_asist">Ranking asistencia</option>
         <option value="jugadores">Listado completo</option>
+        <option value="eliminados">Eliminados</option>
+        <option value="cit_matriz">Matriz de citaciones</option>
       </select>
       <div class="filter-group" id="r-filter-mes">
         <label class="filter-label">Mes</label><select id="rMes" class="filter-select" onchange="renderReporte()"></select></div>
@@ -1586,7 +1588,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.9-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.10-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -7098,6 +7100,33 @@ function rptCitacionesMatriz() {
     }).sort(function(a,b){
       return (a.apellido||'').localeCompare(b.apellido||'');
     });
+
+    // Caso especial: citaciones sin jugadores asignados ("0 citados")
+    if (jugadores.length === 0) {
+      setCards([
+        {val: 0,                 lbl: 'Jugadores citados'},
+        {val: citaciones.length, lbl: 'Partidos'},
+        {val: 0,                 lbl: 'Citaciones', color: 'var(--muted)'}
+      ]);
+      var resumenCits = citaciones.map(function(c){
+        return '<li style="margin-bottom:4px;"><b>' + esc(c.categoria || '?') + '</b> &mdash; vs ' + esc(c.rival || '?')
+             + ' <span style="color:var(--muted);">(' + esc(c.fechaPartido || '?') + ')</span></li>';
+      }).join('');
+      var contEl2 = document.getElementById('r-tabla') || document.getElementById('rTabla');
+      if (contEl2) {
+        contEl2.innerHTML =
+          '<div style="padding:24px;color:var(--muted);">'
+          + '<div style="font-size:30px;text-align:center;margin-bottom:10px;">&#128203;</div>'
+          + '<div style="text-align:center;font-size:14px;font-weight:700;color:var(--secondary);margin-bottom:6px;">'
+          + 'Las ' + citaciones.length + ' citaciones existen pero no tienen jugadores asignados</div>'
+          + '<div style="text-align:center;font-size:12px;margin-bottom:14px;">'
+          + 'Editá una citación desde el módulo Citaciones y tildá los jugadores que van.</div>'
+          + '<div style="font-size:12px;font-weight:700;color:var(--secondary);margin-bottom:6px;">Citaciones registradas:</div>'
+          + '<ul style="font-size:12px;padding-left:20px;">' + resumenCits + '</ul>'
+          + '</div>';
+      }
+      return;
+    }
 
     // Construir tabla
     var html = '<div class="mat-wrap"><table class="mat-table">';
