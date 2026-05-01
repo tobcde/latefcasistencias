@@ -629,6 +629,24 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
         <button id="btn-precio" class="btn btn-save" style="flex:1;" onclick="guardarPrecio()">AGREGAR PRECIO</button>
         <button id="btn-cancel-precio" class="btn" style="display:none;background:var(--muted);color:#fff;" onclick="cancelarEditPrecio()">CANCELAR</button>
       </div>
+
+      <!-- Carga masiva CSV de precios -->
+      <div style="margin-top:14px;padding:12px;background:rgba(255,255,255,.03);border:1px dashed var(--border);border-radius:8px;">
+        <div style="font-size:13px;font-weight:700;color:var(--secondary);margin-bottom:6px;">&#x1F4C4; Carga masiva por CSV</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:10px;">
+          Bajá el CSV con los precios actuales, editalo en Excel/Sheets, y subilo de vuelta para aplicar los cambios en lote.
+          Formato: <code>actividad,categoria,monto</code>. Filas existentes se actualizan; filas nuevas se crean.
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn" style="flex:1;min-width:140px;background:var(--primary-dim);color:#6de097;border:1px solid var(--primary-border);font-family:'Barlow Condensed',sans-serif;font-weight:700;padding:8px;" onclick="exportarPreciosCSV()">&#x2B07;&#xFE0F; Bajar CSV</button>
+          <label class="btn" style="flex:1;min-width:140px;background:rgba(201,162,39,.15);color:var(--secondary);border:1px solid rgba(201,162,39,.4);font-family:'Barlow Condensed',sans-serif;font-weight:700;padding:8px;cursor:pointer;text-align:center;">
+            &#x2B06;&#xFE0F; Subir CSV
+            <input type="file" accept=".csv,text/csv" style="display:none;" onchange="importarPreciosCSV(event)">
+          </label>
+        </div>
+        <div id="csv-precios-preview" style="margin-top:10px;display:none;font-size:11px;"></div>
+      </div>
+
       <div class="item-list" id="listPrecios" style="margin-top:10px;"></div>
     </div>
 
@@ -818,6 +836,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
       <button type="button" class="r-pill-cat active" data-cat="pagos" onclick="selectRptCat('pagos')">&#x1F4B0; Pagos &amp; cuotas</button>
       <button type="button" class="r-pill-cat" data-cat="asist" onclick="selectRptCat('asist')">&#x1F4CB; Asistencias</button>
       <button type="button" class="r-pill-cat" data-cat="socios" onclick="selectRptCat('socios')">&#x1F465; Socios</button>
+      <button type="button" class="r-pill-cat" data-cat="citaciones" onclick="selectRptCat('citaciones')">&#x1F4DD; Citaciones</button>
     </div>
     <!-- Pills de sub-reportes -->
     <div id="r-pills-sub" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;"></div>
@@ -1567,7 +1586,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.8-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.9-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -2685,7 +2704,7 @@ function _fsDispatch(action, p, ok, err) {
         ? db.collection('config_precios').doc(p.rowIndex.toString())
         : db.collection('config_precios').doc();
       ref.set(precData)
-        .then(function(){ cb({ok:true}); })
+        .then(function(){ cb({ok:true, fila: ref.id}); })
         .catch(function(e){ cbErr(e.message); });
       break;
     }
@@ -5864,6 +5883,211 @@ function cancelarEditPrecio() {
   document.getElementById('btn-cancel-precio').style.display = 'none';
 }
 
+// ── CSV de precios ───────────────────────────────────────────────
+function exportarPreciosCSV() {
+  // Bajar matriz: una fila por (actividad, categoria) actual; si no existe, monto vacío
+  var actividades = (DB.actividades || []).map(function(a){ return a.nombre; });
+  var categorias  = (DB.categorias || []).map(function(c){ return c[0]; });
+  var preciosByKey = {};
+  (DB.precios || []).forEach(function(p){
+    preciosByKey[p.actividad + '||' + p.categoria] = Number(p.monto) || 0;
+  });
+  var rows = ['actividad,categoria,monto'];
+  actividades.forEach(function(act){
+    categorias.forEach(function(cat){
+      var key = act + '||' + cat;
+      var monto = preciosByKey[key] || '';
+      rows.push('"' + act.replace(/"/g,'""') + '","' + cat.replace(/"/g,'""') + '",' + monto);
+    });
+  });
+  var blob = new Blob(['﻿' + rows.join('\n')], {type:'text/csv;charset=utf-8;'});
+  var url = URL.createObjectURL(blob);
+  var a = document.createElement('a');
+  a.href = url;
+  a.download = 'precios_' + new Date().toISOString().split('T')[0] + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('CSV de precios descargado (' + (rows.length-1) + ' filas)', 'ok');
+}
+
+// Parser CSV minimo que soporta valores entrecomillados con comas
+function _parseCSVLine(line) {
+  var out = [], cur = '', inQ = false;
+  for (var i = 0; i < line.length; i++) {
+    var ch = line[i];
+    if (inQ) {
+      if (ch === '"' && line[i+1] === '"') { cur += '"'; i++; }
+      else if (ch === '"') inQ = false;
+      else cur += ch;
+    } else {
+      if (ch === '"') inQ = true;
+      else if (ch === ',') { out.push(cur); cur = ''; }
+      else cur += ch;
+    }
+  }
+  out.push(cur);
+  return out;
+}
+
+function importarPreciosCSV(ev) {
+  var f = ev.target.files && ev.target.files[0];
+  if (!f) return;
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    var txt = String(e.target.result || '').replace(/^﻿/, '');
+    var lines = txt.split(/\r?\n/).filter(function(l){ return l.trim().length > 0; });
+    if (lines.length < 2) { toast('CSV vacío o sin datos', 'err'); return; }
+
+    // Validar header
+    var header = _parseCSVLine(lines[0]).map(function(h){ return h.trim().toLowerCase(); });
+    var iAct = header.indexOf('actividad');
+    var iCat = header.indexOf('categoria');
+    var iMonto = header.indexOf('monto');
+    if (iAct < 0 || iCat < 0 || iMonto < 0) {
+      alert('CSV inválido. Header esperado: "actividad,categoria,monto" (en cualquier orden).');
+      return;
+    }
+
+    // Indexar precios actuales por clave (actividad+categoria), case-insensitive en lookup
+    var preciosByKey = {};
+    (DB.precios || []).forEach(function(p){
+      preciosByKey[(p.actividad+'||'+p.categoria).toLowerCase()] = p;
+    });
+
+    // Validar actividades/categorias existentes
+    var actSet = {}, catSet = {};
+    (DB.actividades || []).forEach(function(a){ actSet[a.nombre.toLowerCase()] = a.nombre; });
+    (DB.categorias  || []).forEach(function(c){ catSet[c[0].toLowerCase()]   = c[0]; });
+
+    var cambios = [];   // {actividad, categoria, montoActual, montoNuevo, accion: 'crear'|'actualizar'|'borrar'}
+    var errores = [];
+
+    for (var li = 1; li < lines.length; li++) {
+      var cols = _parseCSVLine(lines[li]);
+      var actCSV = (cols[iAct] || '').trim();
+      var catCSV = (cols[iCat] || '').trim();
+      var montoCSV = (cols[iMonto] || '').trim().replace(/\$|\.|\s/g,'').replace(',','.');
+      if (!actCSV && !catCSV && !montoCSV) continue;
+
+      var actNom = actSet[actCSV.toLowerCase()];
+      var catNom = catSet[catCSV.toLowerCase()];
+      if (!actNom) { errores.push('Línea '+(li+1)+': actividad desconocida "'+actCSV+'"'); continue; }
+      if (!catNom) { errores.push('Línea '+(li+1)+': categoría desconocida "'+catCSV+'"'); continue; }
+
+      var monto = montoCSV === '' ? null : Number(montoCSV);
+      if (monto !== null && (isNaN(monto) || monto < 0)) {
+        errores.push('Línea '+(li+1)+': monto inválido "'+montoCSV+'"');
+        continue;
+      }
+
+      var existing = preciosByKey[(actNom+'||'+catNom).toLowerCase()];
+      var montoActual = existing ? Number(existing.monto) || 0 : null;
+
+      if (monto === null) {
+        // Vacío → si existía, borrar; si no, ignorar
+        if (existing) cambios.push({actividad:actNom, categoria:catNom, montoActual:montoActual, montoNuevo:null, accion:'borrar', row: existing._row});
+      } else if (existing) {
+        if (Math.abs(montoActual - monto) > 0.5) {
+          cambios.push({actividad:actNom, categoria:catNom, montoActual:montoActual, montoNuevo:monto, accion:'actualizar', row: existing._row});
+        }
+      } else {
+        cambios.push({actividad:actNom, categoria:catNom, montoActual:null, montoNuevo:monto, accion:'crear', row: null});
+      }
+    }
+
+    // Mostrar preview en el div
+    var preview = document.getElementById('csv-precios-preview');
+    if (!preview) return;
+    preview.style.display = 'block';
+
+    if (errores.length) {
+      var errHtml = '<div style="color:var(--red);font-weight:700;margin-bottom:6px;">' + errores.length + ' errores en el CSV — corregilos antes de aplicar:</div>'
+        + '<ul style="color:var(--red);font-size:11px;max-height:120px;overflow:auto;padding-left:18px;">' + errores.map(function(e){ return '<li>' + esc(e) + '</li>'; }).join('') + '</ul>';
+      preview.innerHTML = errHtml;
+      ev.target.value = '';
+      return;
+    }
+
+    if (!cambios.length) {
+      preview.innerHTML = '<div style="color:var(--muted);">El CSV no trae cambios respecto a los precios actuales.</div>';
+      ev.target.value = '';
+      return;
+    }
+
+    // Resumen + boton confirmar
+    var c = cambios.reduce(function(acc, x){ acc[x.accion] = (acc[x.accion]||0) + 1; return acc; }, {});
+    var listaHtml = cambios.slice(0, 50).map(function(x){
+      var monStr = x.accion === 'borrar'
+        ? '<span style="color:var(--red);">borrar</span>'
+        : (x.accion === 'crear'
+            ? '<span style="color:#6de097;">crear</span> $' + Number(x.montoNuevo).toLocaleString('es-AR')
+            : '$' + Number(x.montoActual).toLocaleString('es-AR') + ' → <span style="color:var(--secondary);">$' + Number(x.montoNuevo).toLocaleString('es-AR') + '</span>');
+      return '<div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px solid rgba(255,255,255,.04);">'
+        + '<span>' + esc(x.actividad) + ' / ' + esc(x.categoria) + '</span>'
+        + '<span>' + monStr + '</span></div>';
+    }).join('');
+    var more = cambios.length > 50 ? '<div style="color:var(--muted);font-size:10px;">… y ' + (cambios.length - 50) + ' cambios más</div>' : '';
+
+    preview.innerHTML =
+      '<div style="font-weight:700;color:var(--secondary);margin-bottom:6px;">' + cambios.length + ' cambios detectados '
+      + '(' + (c.crear||0) + ' crear / ' + (c.actualizar||0) + ' actualizar / ' + (c.borrar||0) + ' borrar)</div>'
+      + '<div style="max-height:200px;overflow:auto;background:rgba(0,0,0,.2);padding:6px;border-radius:6px;">' + listaHtml + more + '</div>'
+      + '<div style="display:flex;gap:6px;margin-top:8px;">'
+      + '<button class="btn btn-save" style="flex:1;padding:8px;font-weight:700;" onclick="aplicarCambiosPreciosCSV()">&#x2705; APLICAR ' + cambios.length + ' CAMBIOS</button>'
+      + '<button class="btn" style="background:var(--muted);color:#fff;padding:8px;" onclick="cancelarImportPrecios()">Cancelar</button>'
+      + '</div>';
+
+    window._cambiosPreciosCSV = cambios;
+    ev.target.value = ''; // reset input para permitir re-elegir el mismo file
+  };
+  reader.readAsText(f, 'utf-8');
+}
+
+function cancelarImportPrecios() {
+  window._cambiosPreciosCSV = null;
+  var p = document.getElementById('csv-precios-preview');
+  if (p) { p.style.display = 'none'; p.innerHTML = ''; }
+}
+
+function aplicarCambiosPreciosCSV() {
+  var cambios = window._cambiosPreciosCSV || [];
+  if (!cambios.length) return;
+  if (!confirm('¿Aplicar ' + cambios.length + ' cambios a los precios?')) return;
+
+  mostrarLoader('Aplicando cambios... 0/' + cambios.length);
+  var done = 0, errores = 0;
+  function siguiente(i) {
+    if (i >= cambios.length) {
+      ocultarLoader();
+      cancelarImportPrecios();
+      renderListPrecios();
+      poblarSelectsPrecios();
+      if (errores) toast('Aplicado con ' + errores + ' errores. Revisá la lista.', 'err');
+      else toast('Cambios aplicados (' + done + '/' + cambios.length + ')', 'ok');
+      return;
+    }
+    var x = cambios[i];
+    mostrarLoader('Aplicando ' + (i+1) + '/' + cambios.length + '...');
+    if (x.accion === 'borrar') {
+      callScript({action:'deletePrecio', rowIndex:x.row, pass:TOKEN, _noRetry:true}, function(){
+        DB.precios = DB.precios.filter(function(p){ return p._row !== x.row; });
+        done++; siguiente(i+1);
+      }, function(){ errores++; siguiente(i+1); });
+    } else {
+      callScript({action:'savePrecio', actividad:x.actividad, categoria:x.categoria, monto:x.montoNuevo, rowIndex:x.row||null, pass:TOKEN, _noRetry:true}, function(r){
+        var nuevo = {actividad:x.actividad, categoria:x.categoria, monto:x.montoNuevo, _row: r.fila};
+        if (x.row) {
+          DB.precios = DB.precios.map(function(p){ return p._row === x.row ? nuevo : p; });
+        } else {
+          DB.precios.push(nuevo);
+        }
+        done++; siguiente(i+1);
+      }, function(){ errores++; siguiente(i+1); });
+    }
+  }
+  siguiente(0);
+}
+
 function guardarPrecio() {
   var act   = document.getElementById('precio-act').value;
   var cat   = document.getElementById('precio-cat').value;
@@ -6292,7 +6516,7 @@ function renderReporte() {
   _sd('r-filter-desde', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz'].includes(tipo) ? '' : 'none');
   _sd('r-filter-hasta', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz'].includes(tipo) ? '' : 'none');
   _sd('r-filter-caja-fecha', tipo === 'caja_dia' ? '' : 'none');
-  _sd('r-filter-cat', ['deudores','al_dia','jugadores','asist_matriz','asistencia','asist_por_dia','ranking_asist','pagos_mes','caja_dia','auditoria'].includes(tipo) ? '' : 'none');
+  _sd('r-filter-cat', ['deudores','al_dia','jugadores','asist_matriz','asistencia','asist_por_dia','ranking_asist','pagos_mes','caja_dia','auditoria','cit_matriz'].includes(tipo) ? '' : 'none');
   _sd('r-filter-plan', ['pagos_mes','deudores','al_dia','tipo_pago','caja_dia','jugadores'].includes(tipo) ? '' : 'none');
   // Eliminados: mostramos los ultimos 500 eventos sin filtro de fecha — no toca rDesde/rHasta
   if(tipo === 'deudores') rptDeudores();
@@ -6307,6 +6531,7 @@ function renderReporte() {
   else if(tipo === 'caja_dia') rptCajaDia();
   else if(tipo === 'auditoria') rptAuditoria();
   else if(tipo === 'eliminados') rptEliminados();
+  else if(tipo === 'cit_matriz') rptCitacionesMatriz();
 }
 
 // ── Pills + charts ───────────────────────────────────────────────
@@ -6328,6 +6553,9 @@ var R_CAT_MAP = {
   socios: [
     {v:'jugadores',  i:'\uD83D\uDCCB', l:'Listado completo'},
     {v:'eliminados', i:'\uD83D\uDDD1\uFE0F', l:'Eliminados'}
+  ],
+  citaciones: [
+    {v:'cit_matriz', i:'\uD83D\uDD22', l:'Matriz de citaciones'}
   ]
 };
 function selectRptCat(cat){
@@ -6778,6 +7006,154 @@ function rptAsistenciaMatriz() {
   var _th = document.getElementById('r-thead'); if(_th) _th.innerHTML = '';
   var _tb = document.getElementById('r-tbody'); if(_tb) _tb.innerHTML = '';
   (document.getElementById('r-tabla') || document.getElementById('rTabla')).innerHTML = html;
+}
+
+// ── Matriz de citaciones (jugadores × partidos) ──────────────────
+function rptCitacionesMatriz() {
+  var cat = document.getElementById('rCat').value;
+  mostrarLoader('Cargando citaciones...');
+  callScript({ action: 'getCitaciones', pass: TOKEN }, function(res) {
+    ocultarLoader();
+    var citaciones = (res.citaciones || []).slice();
+    try { console.log('[rptCitMatriz] citaciones:', citaciones.length); } catch(_){}
+
+    // Filtrar por categoria si esta seleccionada
+    if (cat) {
+      citaciones = citaciones.filter(function(c){
+        return String(c.categoria || '').trim() === String(cat).trim();
+      });
+    }
+
+    if (!citaciones.length) {
+      setCards([{val:0, lbl:'Sin citaciones para los filtros'}]);
+      var contEl = document.getElementById('r-tabla') || document.getElementById('rTabla');
+      if (contEl) contEl.innerHTML = '<p style="color:var(--muted);padding:20px;">Sin citaciones registradas para esta categoría.</p>';
+      return;
+    }
+
+    // Ordenar por fecha de partido (asc)
+    citaciones.sort(function(a,b){
+      var fa = (a.fechaPartido || '');
+      var fb = (b.fechaPartido || '');
+      if (fa === fb) return (a.rival||'').localeCompare(b.rival||'');
+      return fa.localeCompare(fb);
+    });
+
+    // Indexar: dni -> map(citacionId -> true) y dni -> nombre/apellido tomados de la citacion
+    var idx = {};
+    var jugInfo = {}; // dni -> {apellido, nombre}
+    citaciones.forEach(function(c, ci){
+      var jugs = c.jugadores || [];
+      jugs.forEach(function(j){
+        var dni = String(j.dni || '').trim();
+        if (!dni) return;
+        if (!idx[dni]) idx[dni] = {};
+        idx[dni][ci] = true;
+        if (!jugInfo[dni]) {
+          jugInfo[dni] = {
+            apellido: String(j.apellido || '').trim() || String(j.nombre || '').split(',')[0].trim(),
+            nombre: String(j.pnombre || j.nombre || '').trim()
+          };
+        }
+      });
+    });
+
+    // Lista final de jugadores: los que aparecen al menos en una citacion del filtro,
+    // enriquecidos con DB.jugadores cuando sea posible (por consistencia de nombre)
+    var jugByDni = {};
+    DB.jugadores.slice(1).forEach(function(f){
+      var d = String(f[COL.DNI] || f[COL.TARJETA] || '').trim();
+      if (d) jugByDni[d] = f;
+    });
+
+    var jugadores = Object.keys(idx).map(function(dni){
+      var dbJug = jugByDni[dni];
+      var apellido = dbJug ? String(dbJug[COL.APELLIDO] || '').trim() : jugInfo[dni].apellido;
+      var nombre   = dbJug ? String(dbJug[COL.NOMBRE]   || '').trim() : jugInfo[dni].nombre;
+      var catApp   = dbJug ? String(dbJug[COL.CATEGORIA_APP] || '').trim() : '';
+      return { dni: dni, apellido: apellido, nombre: nombre, cat: catApp };
+    }).sort(function(a,b){
+      return (a.apellido||'').localeCompare(b.apellido||'');
+    });
+
+    // Construir tabla
+    var html = '<div class="mat-wrap"><table class="mat-table">';
+
+    // THEAD: Socio + columnas por partido (dd/mm + rival)
+    html += '<thead><tr>';
+    html += '<th class="mat-nombre">Socio</th>';
+    citaciones.forEach(function(c){
+      var f = c.fechaPartido || '';
+      var partes = f.split('-');
+      var label = partes.length === 3 ? (partes[2] + '/' + partes[1]) : f;
+      var titleParts = [c.categoria || '', 'vs ' + (c.rival || ''), c.fechaPartido || '', c.estadio || ''].filter(Boolean);
+      var rivalShort = (c.rival || '').substring(0, 8);
+      html += '<th class="mat-fecha" title="' + esc(titleParts.join(' — ')) + '">'
+            + label + '<br><span style="font-size:9px;font-weight:400;color:var(--muted);">' + esc(rivalShort) + '</span></th>';
+    });
+    html += '<th class="mat-total" title="Citaciones del jugador">C</th>';
+    html += '<th class="mat-total" title="Total partidos en la categoría">T</th>';
+    html += '<th class="mat-total">%</th>';
+    html += '</tr></thead>';
+
+    // TBODY: una fila por jugador
+    html += '<tbody>';
+    jugadores.forEach(function(j){
+      var citCount = 0;
+      html += '<tr>';
+      var nombreFull = j.apellido + (j.nombre ? ', ' + j.nombre : '');
+      html += '<td class="mat-nombre" title="DNI ' + esc(j.dni) + (j.cat ? ' — ' + esc(j.cat) : '') + '">' + esc(nombreFull) + '</td>';
+      citaciones.forEach(function(c, ci){
+        if (idx[j.dni] && idx[j.dni][ci]) {
+          citCount++;
+          html += '<td class="mat-cell-pres" title="Citado">&#x2713;</td>';
+        } else {
+          html += '<td class="mat-cell-na">&middot;</td>';
+        }
+      });
+      var pct = citaciones.length > 0 ? Math.round(citCount / citaciones.length * 100) : 0;
+      var cl  = pct >= 75 ? 'ok' : pct >= 50 ? '' : 'debe';
+      html += '<td class="mat-cell-total">' + citCount + '</td>';
+      html += '<td class="mat-cell-total" style="color:var(--muted);">' + citaciones.length + '</td>';
+      html += '<td class="mat-cell-total ' + cl + '">' + pct + '%</td>';
+      html += '</tr>';
+    });
+    html += '</tbody>';
+
+    // TFOOT: total citados por partido
+    html += '<tfoot><tr>';
+    html += '<td style="text-align:left;padding:4px 8px;font-weight:700;">TOTAL CITADOS</td>';
+    citaciones.forEach(function(c){
+      var n = (c.jugadores || []).length;
+      html += '<td style="text-align:center;font-size:11px;">' + n + '</td>';
+    });
+    html += '<td colspan="3"></td>';
+    html += '</tr></tfoot>';
+
+    html += '</table></div>';
+
+    // Cards de stats
+    var totalCitaciones = jugadores.reduce(function(s,j){
+      var n = 0; for (var k in (idx[j.dni]||{})) n++;
+      return s + n;
+    }, 0);
+    var promPct = (jugadores.length * citaciones.length) > 0
+      ? Math.round(totalCitaciones / (jugadores.length * citaciones.length) * 100) : 0;
+
+    setCards([
+      {val: jugadores.length,  lbl: 'Jugadores'},
+      {val: citaciones.length, lbl: 'Partidos'},
+      {val: totalCitaciones,   lbl: 'Citaciones', color: '#6de097'},
+      {val: promPct + '%',     lbl: 'Promedio',   color: promPct >= 75 ? '#6de097' : promPct >= 50 ? 'var(--secondary)' : 'var(--red)'}
+    ]);
+
+    var _th = document.getElementById('r-thead'); if(_th) _th.innerHTML = '';
+    var _tb = document.getElementById('r-tbody'); if(_tb) _tb.innerHTML = '';
+    (document.getElementById('r-tabla') || document.getElementById('rTabla')).innerHTML = html;
+  }, function(err){
+    ocultarLoader();
+    toast('Error al cargar citaciones: ' + (err || 'desconocido'), 'err');
+  });
 }
 
 function rptRankingAsist() {
