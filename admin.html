@@ -7014,14 +7014,37 @@ function rptCitacionesMatriz() {
   mostrarLoader('Cargando citaciones...');
   callScript({ action: 'getCitaciones', pass: TOKEN }, function(res) {
     ocultarLoader();
-    var citaciones = (res.citaciones || []).slice();
-    try { console.log('[rptCitMatriz] citaciones:', citaciones.length); } catch(_){}
+    var todasCitaciones = (res.citaciones || []).slice();
+    try {
+      console.log('[rptCitMatriz] total citaciones recibidas:', todasCitaciones.length);
+      console.log('[rptCitMatriz] categorias disponibles:', todasCitaciones.map(function(c){ return c.categoria; }));
+      console.log('[rptCitMatriz] filtro rCat:', cat);
+      console.log('[rptCitMatriz] sample citacion:', todasCitaciones[0]);
+    } catch(_){}
 
-    // Filtrar por categoria si esta seleccionada
+    // Si no hay nada en absoluto, msg claro
+    if (!todasCitaciones.length) {
+      setCards([{val:0, lbl:'Sin citaciones registradas'}]);
+      var contEl0 = document.getElementById('r-tabla') || document.getElementById('rTabla');
+      if (contEl0) contEl0.innerHTML = '<p style="color:var(--muted);padding:20px;">No hay citaciones registradas todavía. Generá una desde el módulo Citaciones.</p>';
+      return;
+    }
+
+    // Aplicar filtro de categoria solo si matchea al menos una.
+    // (Si el usuario tenia una cat seleccionada de otro reporte que no matchea
+    // ninguna citacion, mostramos TODAS y avisamos.)
+    var citaciones = todasCitaciones;
+    var filtroAplicado = false;
     if (cat) {
-      citaciones = citaciones.filter(function(c){
-        return String(c.categoria || '').trim() === String(cat).trim();
+      var filtradas = todasCitaciones.filter(function(c){
+        return String(c.categoria || '').trim().toLowerCase() === String(cat).trim().toLowerCase();
       });
+      if (filtradas.length > 0) {
+        citaciones = filtradas;
+        filtroAplicado = true;
+      } else {
+        try { console.warn('[rptCitMatriz] filtro "' + cat + '" no matchea ninguna citacion — mostrando TODAS'); } catch(_){}
+      }
     }
 
     if (!citaciones.length) {
@@ -7147,11 +7170,24 @@ function rptCitacionesMatriz() {
       {val: promPct + '%',     lbl: 'Promedio',   color: promPct >= 75 ? '#6de097' : promPct >= 50 ? 'var(--secondary)' : 'var(--red)'}
     ]);
 
+    // Notice si el filtro de cat se ignoro porque no matcheaba
+    var noticeHtml = '';
+    if (cat && !filtroAplicado) {
+      noticeHtml = '<div style="background:rgba(255,193,7,.1);border:1px solid rgba(255,193,7,.4);color:#ffc107;padding:8px 12px;border-radius:6px;margin-bottom:10px;font-size:12px;">'
+        + '&#9888;&#65039; Tu filtro de categor&iacute;a (<b>' + esc(cat) + '</b>) no matchea ninguna citaci&oacute;n. Mostrando <b>todas las ' + citaciones.length + '</b> citaciones.'
+        + '</div>';
+    } else if (filtroAplicado) {
+      noticeHtml = '<div style="background:rgba(26,122,60,.15);border:1px solid var(--primary-border);color:#6de097;padding:6px 12px;border-radius:6px;margin-bottom:10px;font-size:12px;">'
+        + 'Filtrado por categor&iacute;a: <b>' + esc(cat) + '</b>'
+        + '</div>';
+    }
+
     var _th = document.getElementById('r-thead'); if(_th) _th.innerHTML = '';
     var _tb = document.getElementById('r-tbody'); if(_tb) _tb.innerHTML = '';
-    (document.getElementById('r-tabla') || document.getElementById('rTabla')).innerHTML = html;
+    (document.getElementById('r-tabla') || document.getElementById('rTabla')).innerHTML = noticeHtml + html;
   }, function(err){
     ocultarLoader();
+    try { console.error('[rptCitMatriz] error callScript:', err); } catch(_){}
     toast('Error al cargar citaciones: ' + (err || 'desconocido'), 'err');
   });
 }
