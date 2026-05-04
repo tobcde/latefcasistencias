@@ -857,6 +857,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
         <option value="jugadores">Listado completo</option>
         <option value="eliminados">Eliminados</option>
         <option value="cit_matriz">Matriz de citaciones</option>
+        <option value="ajustes_saldo">Ajustes de saldo</option>
       </select>
       <div class="filter-group" id="r-filter-mes">
         <label class="filter-label">Mes</label><select id="rMes" class="filter-select" onchange="renderReporte()"></select></div>
@@ -1588,7 +1589,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.12-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.13-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -6625,6 +6626,7 @@ function renderReporte() {
   else if(tipo === 'auditoria') rptAuditoria();
   else if(tipo === 'eliminados') rptEliminados();
   else if(tipo === 'cit_matriz') rptCitacionesMatriz();
+  else if(tipo === 'ajustes_saldo') rptAjustesSaldo();
 }
 
 // ── Pills + charts ───────────────────────────────────────────────
@@ -6635,7 +6637,8 @@ var R_CAT_MAP = {
     {v:'al_dia',     i:'\u2705',       l:'Al d\u00EDa'},
     {v:'tipo_pago',  i:'\uD83D\uDCB3', l:'Por tipo de pago'},
     {v:'caja_dia',   i:'\uD83C\uDFE6', l:'Caja del d\u00EDa'},
-    {v:'auditoria',  i:'\uD83D\uDD0D', l:'Auditor\u00EDa'}
+    {v:'auditoria',  i:'\uD83D\uDD0D', l:'Auditor\u00EDa'},
+    {v:'ajustes_saldo', i:'\u2696\uFE0F', l:'Ajustes de saldo'}
   ],
   asist:  [
     {v:'asistencia',    i:'\u2705',       l:'Asistencia'},
@@ -7413,6 +7416,61 @@ function rptAuditoria() {
       ocultarLoader();
       try { console.error('[rptAuditoria] error:', e); } catch(_){}
       toast('Error al cargar auditoría: ' + (e.message || e) + ' (code: ' + (e.code || 'n/a') + ')', 'err');
+    });
+}
+
+// ── Reporte: Ajustes de saldo (auditoria_saldos) ──────────────────
+function rptAjustesSaldo() {
+  mostrarLoader('Cargando ajustes de saldo...');
+  db.collection('auditoria_saldos').orderBy('fecha','desc').limit(500).get()
+    .then(function(snap){
+      _contarLecturas(snap.size);
+      ocultarLoader();
+      try { console.log('[rptAjustesSaldo] docs recibidos:', snap.size); } catch(_){}
+      var rows = [];
+      var totalDelta = 0, posCount = 0, negCount = 0;
+      snap.forEach(function(doc){
+        var d = doc.data();
+        var fechaStr = d.fecha && d.fecha.toDate ? formatDate(d.fecha.toDate()) : (d.fecha||'-');
+        var delta = Number(d.delta)||0;
+        var anterior = Number(d.montoAnterior)||0;
+        var nuevo = Number(d.montoNuevo)||0;
+        if (delta > 0) posCount++; else if (delta < 0) negCount++;
+        totalDelta += delta;
+        var deltaColor = delta > 0 ? '#6de097' : (delta < 0 ? 'var(--red)' : 'var(--muted)');
+        var deltaSign = delta > 0 ? '+' : '';
+        rows.push('<tr>'
+          + td(fechaStr, 'muted')
+          + td((d.nombreSocio||'-')+'<br><small style="color:var(--muted)">'+(d.dni||'-')+'</small>')
+          + td('$' + anterior.toLocaleString('es-AR'), 'muted num')
+          + td('<span style="color:'+deltaColor+';font-weight:700;">'+deltaSign+'$' + delta.toLocaleString('es-AR') + '</span>', 'num')
+          + td('$' + nuevo.toLocaleString('es-AR'), 'num')
+          + td(d.motivo||'-','muted')
+          + td(d.modificadoPor||'-','muted')
+          + '</tr>');
+      });
+      setCards([
+        {val: snap.size,    lbl: 'Ajustes',                color:'var(--secondary)'},
+        {val: posCount,     lbl: 'A favor (+)',            color:'#6de097'},
+        {val: negCount,     lbl: 'Descuentos (-)',         color:'var(--red)'},
+        {val: '$' + totalDelta.toLocaleString('es-AR'), lbl: 'Delta neto', color: totalDelta >= 0 ? '#6de097' : 'var(--red)'}
+      ]);
+      setTablaHeaders(['Fecha','Socio','Saldo anterior','Delta','Saldo nuevo','Motivo','Usuario']);
+      setTablaRows(rows);
+      if(!rows.length){
+        var empty = document.getElementById('r-empty');
+        if(empty){
+          empty.style.display = '';
+          empty.innerHTML = '<div style="text-align:center;padding:28px;color:var(--muted);">'
+            + '<div style="font-size:30px;margin-bottom:6px;">&#9878;&#65039;</div>'
+            + '<div style="font-size:14px;font-weight:700;">Sin ajustes de saldo</div>'
+            + '<div style="font-size:12px;margin-top:4px;">Se registran cuando edit&aacute;s el saldo a favor de un socio desde su ficha o cuando se descuenta saldo a favor en un cobro.</div></div>';
+        }
+      }
+    }).catch(function(e){
+      ocultarLoader();
+      try { console.error('[rptAjustesSaldo] error:', e); } catch(_){}
+      toast('Error al cargar ajustes: ' + (e.message || e) + ' (code: ' + (e.code || 'n/a') + ')', 'err');
     });
 }
 
