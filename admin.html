@@ -1588,7 +1588,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.11-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.12-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -2146,6 +2146,37 @@ function horarioToRow(doc) {
   return row;
 }
 
+// ── Helpers para mantener CUOTAS_DB sin duplicados por _fsId ─────
+function _pushCuotaUnique(row) {
+  var fsId = row && row._fsId;
+  if (fsId) {
+    for (var i = 0; i < CUOTAS_DB.cuotas.length; i++) {
+      if (CUOTAS_DB.cuotas[i] && CUOTAS_DB.cuotas[i]._fsId === fsId) {
+        CUOTAS_DB.cuotas[i] = row;
+        return false;
+      }
+    }
+  }
+  CUOTAS_DB.cuotas.push(row);
+  return true;
+}
+
+function _dedupCuotas() {
+  var seen = {};
+  var dups = 0;
+  CUOTAS_DB.cuotas = CUOTAS_DB.cuotas.filter(function(c){
+    var id = c && c._fsId;
+    if (!id) return true;
+    if (seen[id]) { dups++; return false; }
+    seen[id] = true;
+    return true;
+  });
+  if (dups > 0) {
+    try { console.warn('[_dedupCuotas] removidos ' + dups + ' duplicados de CUOTAS_DB.cuotas'); } catch(_){}
+  }
+  return dups;
+}
+
 function cuotaToRow(d, fsId) {
   // formato: [dni, nombre, plan, periodoDesde, periodoHasta, fechaPago, monto, metodo, cobrador, obs, _fsId]
   // FASE 2: para cuotas preferimos el snapshot historico planNombre (immutable).
@@ -2240,7 +2271,8 @@ function refrescarDatos() {
     results[0].forEach(function(doc){ DB.jugadores.push(socioToRow(doc, doc.id)); });
     // Cuotas
     CUOTAS_DB.cuotas = [];
-    results[1].forEach(function(doc){ CUOTAS_DB.cuotas.push(cuotaToRow(doc.data(), doc.id)); });
+    results[1].forEach(function(doc){ _pushCuotaUnique(cuotaToRow(doc.data(), doc.id)); });
+    _dedupCuotas();
     _contarLecturas(results[0].size + results[1].size);
     ocultarLoader();
     renderPlayers();
@@ -2402,7 +2434,8 @@ function inicializar(passReal) {
     // Procesar cuotas del mes actual
     CUOTAS_DB.cuotas = [];
     var mesActual = new Date().getFullYear() + '-' + String(new Date().getMonth()+1).padStart(2,'0');
-    cuotasMesSnap.forEach(function(doc){ CUOTAS_DB.cuotas.push(cuotaToRow(doc.data(), doc.id)); });
+    cuotasMesSnap.forEach(function(doc){ _pushCuotaUnique(cuotaToRow(doc.data(), doc.id)); });
+    _dedupCuotas();
     _cargado['cuotas_' + mesActual] = true;
     _cargado.cuotas = true;
 
@@ -4018,7 +4051,7 @@ function confirmarPago() {
       // Agregar a memoria con fsId para poder editar/eliminar después
       var newRow = [p.doc, p.nombre, p.plan, p.periodoDesde, p.periodoHasta, p.fechaPago, p.monto, p.metodo, p.cobrador, p.obs];
       newRow._fsId = (res && res.id) || '';
-      CUOTAS_DB.cuotas.push(newRow);
+      _pushCuotaUnique(newRow);
       if(++done === pagos.length) {
         var _finalizarPago = function(){
           window._ultimoPago = {
@@ -4095,7 +4128,7 @@ function _marcarTodosMesConfirmado() {
     callScript({action:'registrarPago', pago:p, pass:TOKEN}, function(res){
       var newRow = [p.doc, p.nombre, p.plan, p.periodoDesde, p.periodoHasta, p.fechaPago, p.monto, p.metodo, p.cobrador, p.obs];
       newRow._fsId = (res && res.id) || '';
-      CUOTAS_DB.cuotas.push(newRow);
+      _pushCuotaUnique(newRow);
       if(++done === pend.length){ ocultarLoader(); renderCuotas(); renderPlayers(); toast('Pagos registrados', 'ok'); }
     });
   });
@@ -7570,7 +7603,8 @@ function lazyCargarCuotasEInscripciones(cb) {
         var mp = (c[3]||'').substring(0,7);
         return mp !== periodo;
       });
-      results[idx].forEach(function(doc){ var r = cuotaToRow(doc.data(), doc.id); CUOTAS_DB.cuotas.push(r); });
+      results[idx].forEach(function(doc){ var r = cuotaToRow(doc.data(), doc.id); _pushCuotaUnique(r); });
+      _dedupCuotas();
       _contarLecturas(results[idx].size); idx++;
       _cargado[cacheKey] = true;
       _cargado.cuotas = true;
