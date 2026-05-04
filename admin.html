@@ -1592,7 +1592,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.18-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.19-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3082,7 +3082,19 @@ function ocultarBannerPendientes(){
 
 // -- HELPERS FECHA ------------------------------------------------
 function parseDate(s){ if(!s) return null; var str = s.toString().trim(); if(str.includes('/')){ var p = str.split('/'); return new Date(parseInt(p[2]), parseInt(p[1])-1, parseInt(p[0])); } if(/^\d{4}-\d{2}-\d{2}/.test(str)){ var p = str.substring(0,10).split('-'); return new Date(parseInt(p[0]), parseInt(p[1])-1, parseInt(p[2])); } var d = new Date(str); return isNaN(d) ? null : d; }
-function formatDate(d){ if(!d) return ''; return d.getDate() + '/' + (d.getMonth()+1) + '/' + d.getFullYear(); }
+function formatDate(d){ if(!d) return ''; return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear(); }
+function formatDateTime(d){
+  if(!d) return '';
+  var dt;
+  if (d.getTime) dt = d;
+  else if (typeof d === 'string') {
+    var s = d.trim();
+    if (/T\d{2}:\d{2}/.test(s)) dt = new Date(s);
+    else dt = new Date(s);
+    if (isNaN(dt.getTime())) return s;
+  } else return '';
+  return formatDate(dt) + ' ' + String(dt.getHours()).padStart(2,'0') + ':' + String(dt.getMinutes()).padStart(2,'0');
+}
 function ultimoDiaMes(a,m){ return new Date(a,m,0).getDate(); }
 function nombreMes(n){ return ['','Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'][n]; }
 function extraerAnioNac(fStr){ if(!fStr) return null; var s = fStr.toString(); if(s.includes('/')){ var p = s.split('/'); if(p.length===3) return parseInt(p[2]); } var m = s.match(/(\d{4})/); return m ? parseInt(m[1]) : null; }
@@ -6665,6 +6677,15 @@ function renderReporte() {
   _sd('r-filter-cat', ['deudores','al_dia','jugadores','asist_matriz','asistencia','asist_por_dia','ranking_asist','pagos_mes','caja_dia','auditoria','cit_matriz'].includes(tipo) ? '' : 'none');
   _sd('r-filter-plan', ['pagos_mes','deudores','al_dia','tipo_pago','caja_dia','jugadores','auditoria'].includes(tipo) ? '' : 'none');
   _sd('r-filter-socio', ['auditoria','ajustes_saldo'].includes(tipo) ? '' : 'none');
+  if (['auditoria','ajustes_saldo'].includes(tipo)) {
+    var _rDeAud = document.getElementById('rDesde');
+    if (_rDeAud && _rDeAud.value) {
+      var _hoy = new Date();
+      var _ampAud = new Date(_hoy.getFullYear() - 1, _hoy.getMonth(), 1);
+      var _curAud = new Date(_rDeAud.value);
+      if (_curAud > _ampAud) _rDeAud.value = _ampAud.toISOString().split('T')[0];
+    }
+  }
   // Eliminados: mostramos los ultimos 500 eventos sin filtro de fecha — no toca rDesde/rHasta
   if(tipo === 'deudores') rptDeudores();
   else if(tipo === 'al_dia') rptAlDia();
@@ -7542,7 +7563,7 @@ function rptAuditoria() {
           : '$' + Number(orig.monto||0).toLocaleString('es-AR') + ' — ' + (orig.metodo||'-');
         rows.push('<tr>'
           + td('<span style="color:'+tipoColor+';font-weight:700;">'+d.tipo+'</span>')
-          + td(d.fecha||'-','muted')
+          + td(d.fecha ? formatDateTime(d.fecha) : '-','muted')
           + td((orig.nombre||'-')+'<br><small style="color:var(--muted)">'+orig.dni+'</small>')
           + td(orig.plan||'-','muted')
           + td(detalle)
@@ -7588,7 +7609,7 @@ function rptAjustesSaldo() {
       snap.forEach(function(doc){
         var d = doc.data();
         var fechaDate = d.fecha && d.fecha.toDate ? d.fecha.toDate() : null;
-        var fechaStr = fechaDate ? formatDate(fechaDate) : (d.fecha||'-');
+        var fechaStr = fechaDate ? formatDateTime(fechaDate) : (d.fecha||'-');
         if (fechaDate) {
           var diaIso = fechaDate.toISOString().substring(0,10);
           if (rango.desde && diaIso < rango.desde) return;
@@ -7655,7 +7676,7 @@ function rptEliminados() {
       var totalElim = 0, totalRest = 0;
       snap.forEach(function(doc){
         var d = doc.data();
-        var fechaStr = d.fecha && d.fecha.toDate ? formatDate(d.fecha.toDate()) : (d.fecha||'-');
+        var fechaStr = d.fecha && d.fecha.toDate ? formatDateTime(d.fecha.toDate()) : (d.fecha||'-');
         var accion = d.accion || '-';
         var color = accion === 'eliminar' ? 'var(--red)' : '#6de097';
         var snap2 = d.snapshot || {};
