@@ -873,6 +873,9 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
       <div class="filter-group" id="r-filter-plan">
         <label class="filter-label">Plan / Inscripci&oacute;n</label>
         <select id="rPlan" class="filter-select" onchange="renderReporte()"><option value="">Todos</option></select></div>
+      <div class="filter-group" id="r-filter-socio" style="display:none;">
+        <label class="filter-label">Socio (nombre o DNI)</label>
+        <input type="text" id="rSocio" class="edit-input" style="height:36px;padding:0 10px;min-width:200px;" placeholder="ej: Cantero o 56279581" oninput="_debouncedRenderReporte()"></div>
       <button class="btn btn-secondary" onclick="exportarReporteCSV()" style="height:36px;">&#x2193; CSV</button>
     </div>
     <div id="r-cards" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px;"></div>
@@ -1589,7 +1592,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.15-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.16-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -6587,6 +6590,13 @@ function iniciarReportes() {
   selectRptCat('pagos');
 }
 
+// Debounce: el input de socio dispara renderReporte mientras el usuario escribe.
+var _renderReporteTimer = null;
+function _debouncedRenderReporte() {
+  if (_renderReporteTimer) clearTimeout(_renderReporteTimer);
+  _renderReporteTimer = setTimeout(function(){ renderReporte(); }, 300);
+}
+
 function renderReporte() {
   var tipo = document.getElementById('rTipo').value;
   // Limpiar notas/extras del reporte anterior antes de renderizar el nuevo
@@ -6607,11 +6617,12 @@ function renderReporte() {
   var _re = document.getElementById('r-empty'); if(_re) _re.style.display = 'none';
   var _sd = function(id,v){ var e = document.getElementById(id); if(e) e.style.display = v; };
   _sd('r-filter-mes', tipo === 'tipo_pago' ? '' : 'none');
-  _sd('r-filter-desde', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz'].includes(tipo) ? '' : 'none');
-  _sd('r-filter-hasta', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz'].includes(tipo) ? '' : 'none');
+  _sd('r-filter-desde', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz','auditoria','ajustes_saldo'].includes(tipo) ? '' : 'none');
+  _sd('r-filter-hasta', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz','auditoria','ajustes_saldo'].includes(tipo) ? '' : 'none');
   _sd('r-filter-caja-fecha', tipo === 'caja_dia' ? '' : 'none');
   _sd('r-filter-cat', ['deudores','al_dia','jugadores','asist_matriz','asistencia','asist_por_dia','ranking_asist','pagos_mes','caja_dia','auditoria','cit_matriz'].includes(tipo) ? '' : 'none');
-  _sd('r-filter-plan', ['pagos_mes','deudores','al_dia','tipo_pago','caja_dia','jugadores'].includes(tipo) ? '' : 'none');
+  _sd('r-filter-plan', ['pagos_mes','deudores','al_dia','tipo_pago','caja_dia','jugadores','auditoria'].includes(tipo) ? '' : 'none');
+  _sd('r-filter-socio', ['auditoria','ajustes_saldo'].includes(tipo) ? '' : 'none');
   // Eliminados: mostramos los ultimos 500 eventos sin filtro de fecha — no toca rDesde/rHasta
   if(tipo === 'deudores') rptDeudores();
   else if(tipo === 'al_dia') rptAlDia();
@@ -6831,12 +6842,19 @@ function rptAlDia() {
   var cat = document.getElementById('rCat').value;
   var plan = getPlanFiltro();
   var rows = [];
+  // "Vigente hasta": ultimo dia del mes actual + meses cubiertos por saldo a favor.
+  var hoy = new Date();
   DB.jugadores.slice(1).filter(function(f){ var a = f[COL.ACTIVO]; return a===true||String(a).toLowerCase()==='si'; }).forEach(function(f){
     var cv = estadoCuotaV2(f);
     if(cv.estado !== 'ok' && cv.estado !== 'vence') return;
     if(cat && String(f[COL.CATEGORIA_APP]||'').trim() !== String(cat).trim()) return;
     if(plan && !socioTienePlan(f[COL.DNI]||f[COL.TARJETA]||'', plan)) return;
-    rows.push('<tr>' + td((f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'')) + td(f[COL.DNI]||f[COL.TARJETA]||'','muted') + td(f[COL.CATEGORIA_APP]||'','muted') + td(cv.planNom||'-','muted') + td(cv.hasta?formatDate(cv.hasta):'-','ok') + '</tr>');
+    var pm = Number(cv.planMonto) || 0;
+    var favor = Number(cv.saldoAFavor) || 0;
+    var mesesFavor = pm > 0 ? Math.floor(favor / pm) : 0;
+    var fin = new Date(hoy.getFullYear(), hoy.getMonth() + 1 + mesesFavor, 0);
+    var vigStr = String(fin.getDate()).padStart(2,'0') + '/' + String(fin.getMonth()+1).padStart(2,'0') + '/' + fin.getFullYear();
+    rows.push('<tr>' + td((f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'')) + td(f[COL.DNI]||f[COL.TARJETA]||'','muted') + td(f[COL.CATEGORIA_APP]||'','muted') + td(cv.planNom||'-','muted') + td(vigStr,'ok') + '</tr>');
   });
   setCards([{val:rows.length, lbl:'Al dia', color:'#6de097'}]);
   setTablaHeaders([T('socio'),'Documento',T('grupo'),'Plan','Vigente hasta']);
@@ -7430,9 +7448,10 @@ function rptRankingAsist() {
 }
 
 function rptAuditoria() {
-  // No filtramos por rango de fechas — ya limitamos a 500 eventos ordenados desc.
-  // El filtro por categoria sigue activo si el usuario lo elige.
   var cat = document.getElementById('rCat').value;
+  var plan = getPlanFiltro();
+  var rango = getRangoFechas();
+  var qSocio = (document.getElementById('rSocio') ? document.getElementById('rSocio').value : '').trim().toLowerCase();
   var dniByCat = null;
   if(cat){
     dniByCat = {};
@@ -7454,6 +7473,17 @@ function rptAuditoria() {
         var d = doc.data();
         var orig = d.pagoOriginal || {};
         if(dniByCat && !dniByCat[(orig.dni||'').toString().trim()]) return;
+        if (plan && String(orig.plan||orig.concepto||'').trim() !== plan) return;
+        var fechaDia = (d.fecha||'').substring(0,10);
+        if (fechaDia) {
+          if (rango.desde && fechaDia < rango.desde) return;
+          if (rango.hasta && fechaDia > rango.hasta) return;
+        }
+        if (qSocio) {
+          var nombreLow = String(orig.nombre||'').toLowerCase();
+          var dniLow    = String(orig.dni||'').toLowerCase();
+          if (nombreLow.indexOf(qSocio) < 0 && dniLow.indexOf(qSocio) < 0) return;
+        }
         var tipoColor = d.tipo === 'ELIMINAR' ? 'var(--red)' : 'var(--secondary)';
         var detalle = d.tipo === 'EDITAR' && d.pagoNuevo
           ? 'Monto: $' + Number(orig.monto).toLocaleString('es-AR') + ' → $' + Number(d.pagoNuevo.monto).toLocaleString('es-AR')
@@ -7493,6 +7523,8 @@ function rptAuditoria() {
 
 // ── Reporte: Ajustes de saldo (auditoria_saldos) ──────────────────
 function rptAjustesSaldo() {
+  var rango = getRangoFechas();
+  var qSocio = (document.getElementById('rSocio') ? document.getElementById('rSocio').value : '').trim().toLowerCase();
   mostrarLoader('Cargando ajustes de saldo...');
   db.collection('auditoria_saldos').orderBy('fecha','desc').limit(500).get()
     .then(function(snap){
@@ -7500,10 +7532,22 @@ function rptAjustesSaldo() {
       ocultarLoader();
       try { console.log('[rptAjustesSaldo] docs recibidos:', snap.size); } catch(_){}
       var rows = [];
-      var totalDelta = 0, posCount = 0, negCount = 0;
+      var totalDelta = 0, posCount = 0, negCount = 0, mostrados = 0;
       snap.forEach(function(doc){
         var d = doc.data();
-        var fechaStr = d.fecha && d.fecha.toDate ? formatDate(d.fecha.toDate()) : (d.fecha||'-');
+        var fechaDate = d.fecha && d.fecha.toDate ? d.fecha.toDate() : null;
+        var fechaStr = fechaDate ? formatDate(fechaDate) : (d.fecha||'-');
+        if (fechaDate) {
+          var diaIso = fechaDate.toISOString().substring(0,10);
+          if (rango.desde && diaIso < rango.desde) return;
+          if (rango.hasta && diaIso > rango.hasta) return;
+        }
+        if (qSocio) {
+          var nombreLow = String(d.nombreSocio||'').toLowerCase();
+          var dniLow    = String(d.dni||'').toLowerCase();
+          if (nombreLow.indexOf(qSocio) < 0 && dniLow.indexOf(qSocio) < 0) return;
+        }
+        mostrados++;
         var delta = Number(d.delta)||0;
         var anterior = Number(d.montoAnterior)||0;
         var nuevo = Number(d.montoNuevo)||0;
@@ -7522,7 +7566,7 @@ function rptAjustesSaldo() {
           + '</tr>');
       });
       setCards([
-        {val: snap.size,    lbl: 'Ajustes',                color:'var(--secondary)'},
+        {val: mostrados,    lbl: 'Ajustes',                color:'var(--secondary)'},
         {val: posCount,     lbl: 'A favor (+)',            color:'#6de097'},
         {val: negCount,     lbl: 'Descuentos (-)',         color:'var(--red)'},
         {val: '$' + totalDelta.toLocaleString('es-AR'), lbl: 'Delta neto', color: totalDelta >= 0 ? '#6de097' : 'var(--red)'}
