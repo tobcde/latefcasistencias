@@ -1588,7 +1588,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.10-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.11-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3339,13 +3339,16 @@ function calcularEstadoTiempoReal(f) {
     var mD = insc.desde ? normFecha(insc.desde).substring(0,7) : '';
     if (!mD || mD > mesHoy) return;
 
-    var mH = insc.hasta ? normFecha(insc.hasta).substring(0,7) : mesHoy;
+    // BUGFIX: capar mH al mes actual para no exigir cuotas de meses futuros.
+    var mHRaw = insc.hasta ? normFecha(insc.hasta).substring(0,7) : '';
+    var mH = mHRaw && mHRaw < mesHoy ? mHRaw : mesHoy;
 
     var d1 = mD.split('-'), d2 = mH.split('-');
     var mesesT = (parseInt(d2[0]) - parseInt(d1[0])) * 12 + (parseInt(d2[1]) - parseInt(d1[1])) + 1;
     if (mesesT < 1) mesesT = 1;
 
     // Solo pagos con concepto exacto al plan (sin historicos)
+    var mHFiltroPago = mHRaw || '9999-12';
     var totalPagado = 0;
     (CUOTAS_DB.cuotas || []).forEach(function(row) {
       var docPago  = (row[0] || '').toString().trim();
@@ -3355,7 +3358,7 @@ function calcularEstadoTiempoReal(f) {
       if (docPago !== dni) return;
       if (concepto.indexOf('Historico') === 0) return;
       if (concepto !== insc.plan) return;
-      if (mesPago < mD || mesPago > mH) return;
+      if (mesPago < mD || mesPago > mHFiltroPago) return;
       totalPagado += monto;
     });
 
@@ -3437,7 +3440,62 @@ function calcularEstadoTiempoReal(f) {
   };
 }
 
-function estadoCuotaV2(f) { return calcularEstadoTiempoReal(f); }// -- RENDER SOCIOS ------------------------------------------------
+function estadoCuotaV2(f) { return calcularEstadoTiempoReal(f); }
+
+// ── Herramienta de diagnostico: imprimir todo el desglose de un socio ──
+// Uso desde consola F12:  diagnosticoSocio('38123456')  o  diagnosticoSocio('Santino Cantero')
+window.diagnosticoSocio = function(query) {
+  query = String(query || '').trim().toLowerCase();
+  if (!query) { console.log('Uso: diagnosticoSocio("DNI") o diagnosticoSocio("nombre o apellido")'); return; }
+  var rows = (DB.jugadores || []).slice(1);
+  var match = rows.filter(function(f){
+    var dni = String(f[COL.DNI] || f[COL.TARJETA] || '').trim();
+    var nombre = ((f[COL.APELLIDO]||'') + ' ' + (f[COL.NOMBRE]||'')).toLowerCase();
+    return dni === query || nombre.indexOf(query) >= 0;
+  });
+  if (!match.length) { console.warn('[diagnostico] no encontre socio con "' + query + '"'); return; }
+  match.forEach(function(f){
+    var dni = String(f[COL.DNI] || f[COL.TARJETA] || '').trim();
+    var nombre = (f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'');
+    console.group('%c[diagnostico] ' + nombre + ' (DNI ' + dni + ')', 'color:#6de097;font-weight:bold;');
+    var inscs = (DB.inscripciones||[]).filter(function(i){ return (i.dni||'').toString().trim() === dni; });
+    console.log('Inscripciones (' + inscs.length + '):');
+    console.table(inscs.map(function(i){
+      return { plan: i.plan, monto: i.monto, descuentoHno: i.descuentoHno||0, desde: i.desde, hasta: i.hasta||'(sin fin)', _row: i._row };
+    }));
+    var cuotas = (CUOTAS_DB.cuotas||[]).filter(function(r){ return (r[0]||'').toString().trim() === dni; });
+    console.log('Cuotas pagadas (' + cuotas.length + '):');
+    console.table(cuotas.map(function(r){
+      return { concepto: r[2], periodoDesde: r[3], periodoHasta: r[4], fechaPago: r[5], monto: r[6], metodo: r[7], cobrador: r[8], obs: r[9], _fsId: r._fsId };
+    }));
+    var cv = calcularEstadoTiempoReal(f);
+    console.log('%cEstado final:', 'font-weight:bold;color:var(--secondary)', cv.estado);
+    console.log('Deuda:', cv.deuda, '/ A favor:', cv.saldoAFavor);
+    console.log('Detalle por inscripcion:');
+    console.table(cv.detalle);
+    console.groupEnd();
+  });
+};
+
+window.diagnosticoCobranza = function() {
+  var hoy = new Date();
+  var mesHoy = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0');
+  console.log('%c[diagnosticoCobranza] mes actual: ' + mesHoy, 'color:#6de097;font-weight:bold;');
+  var raros = (DB.jugadores||[]).slice(1).filter(function(f){
+    var a = f[COL.ACTIVO]; if(!(a===true||String(a).toLowerCase()==='si')) return false;
+    var cv = calcularEstadoTiempoReal(f);
+    return cv.estado === 'parcial' || (cv.deuda > 0 && cv.saldoAFavor > 0);
+  }).map(function(f){
+    var cv = calcularEstadoTiempoReal(f);
+    return {
+      nombre: (f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||''),
+      dni: f[COL.DNI] || f[COL.TARJETA],
+      estado: cv.estado, deuda: cv.deuda, aFavor: cv.saldoAFavor, plan: cv.planNom
+    };
+  });
+  console.table(raros);
+  console.log('Total con anomalias:', raros.length);
+};// -- RENDER SOCIOS ------------------------------------------------
 function renderPlayers() {
   // Si el filtro es Inactivos y no están cargados, cargarlos primero
   var estFil = document.getElementById('fEstado');
