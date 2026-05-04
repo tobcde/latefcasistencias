@@ -1589,7 +1589,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.14-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.15-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -6690,8 +6690,78 @@ function _rptChartColors(n){
   var out = []; for(var i=0;i<n;i++) out.push(base[i % base.length]); return out;
 }
 
-function setTablaHeaders(cols){ document.getElementById('r-thead').innerHTML = '<tr>' + cols.map(function(c){ return '<th>' + c + '</th>'; }).join('') + '</tr>'; }
-function setTablaRows(rows){ document.getElementById('r-tbody').innerHTML = rows.join(''); document.getElementById('r-empty').style.display = rows.length ? 'none' : ''; }
+// ── Tablas ordenables por columna ─────────────────────────────────
+var _rRowsCurrent = [];
+var _rSortColIdx = -1;
+var _rSortAsc = true;
+
+function _extractCellText(rowHtml, idx) {
+  var matches = rowHtml.match(/<td[^>]*>[\s\S]*?<\/td>/g);
+  if (matches && matches[idx] !== undefined) {
+    return matches[idx]
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&mdash;/g, '-')
+      .trim();
+  }
+  return '';
+}
+
+function _parseCellSort(text) {
+  var hasDigit = /\d/.test(text);
+  if (hasDigit) {
+    var clean = text.replace(/[\$%\s]/g,'').replace(/\./g,'').replace(',','.');
+    var num = Number(clean);
+    if (!isNaN(num)) return { num: num, str: text.toLowerCase(), isNum: true };
+  }
+  return { num: 0, str: text.toLowerCase(), isNum: false };
+}
+
+function _sortReporte(idx) {
+  if (_rSortColIdx === idx) {
+    _rSortAsc = !_rSortAsc;
+  } else {
+    _rSortColIdx = idx;
+    _rSortAsc = true;
+  }
+  var asc = _rSortAsc;
+  var sorted = _rRowsCurrent.slice().sort(function(a, b) {
+    var va = _parseCellSort(_extractCellText(a, idx));
+    var vb = _parseCellSort(_extractCellText(b, idx));
+    var cmp;
+    if (va.isNum && vb.isNum) cmp = va.num - vb.num;
+    else cmp = va.str.localeCompare(vb.str, 'es', {sensitivity:'base', numeric:true});
+    return asc ? cmp : -cmp;
+  });
+  var tbody = document.getElementById('r-tbody');
+  if (tbody) tbody.innerHTML = sorted.join('');
+  var ths = document.querySelectorAll('#r-thead th');
+  for (var i = 0; i < ths.length; i++) {
+    var ind = ths[i].querySelector('.sort-indicator');
+    if (ind) ind.innerHTML = '';
+    ths[i].style.color = '';
+  }
+  if (ths[idx]) {
+    var indActiva = ths[idx].querySelector('.sort-indicator');
+    if (indActiva) indActiva.innerHTML = _rSortAsc ? ' &#9650;' : ' &#9660;';
+    ths[idx].style.color = 'var(--secondary)';
+  }
+}
+
+function setTablaHeaders(cols){
+  document.getElementById('r-thead').innerHTML = '<tr>' + cols.map(function(c, i){
+    return '<th onclick="_sortReporte(' + i + ')" style="cursor:pointer;user-select:none;" title="Click para ordenar">' + c + '<span class="sort-indicator" style="color:var(--secondary);font-size:10px;font-weight:normal;"></span></th>';
+  }).join('') + '</tr>';
+  _rSortColIdx = -1;
+  _rSortAsc = true;
+}
+
+function setTablaRows(rows){
+  _rRowsCurrent = rows.slice();
+  document.getElementById('r-tbody').innerHTML = rows.join('');
+  document.getElementById('r-empty').style.display = rows.length ? 'none' : '';
+}
 function setCards(cards){ document.getElementById('r-cards').innerHTML = cards.map(function(c){ return '<div class="r-card"><div class="r-card-val" style="color:' + (c.color||'var(--secondary)') + ';">' + c.val + '</div><div class="r-card-lbl">' + c.lbl + '</div></div>'; }).join(''); }
 function getMesSeleccionado(){ return document.getElementById('rMes').value; }
 function getPlanFiltro(){ var e = document.getElementById('rPlan'); return e ? (e.value||'').trim() : ''; }
