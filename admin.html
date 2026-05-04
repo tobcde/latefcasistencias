@@ -1592,7 +1592,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.17-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.18-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3376,42 +3376,82 @@ function calcularEstadoTiempoReal(f) {
     var mD = insc.desde ? normFecha(insc.desde).substring(0,7) : '';
     if (!mD || mD > mesHoy) return;
 
-    // BUGFIX: capar mH al mes actual para no exigir cuotas de meses futuros.
     var mHRaw = insc.hasta ? normFecha(insc.hasta).substring(0,7) : '';
     var mH = mHRaw && mHRaw < mesHoy ? mHRaw : mesHoy;
 
-    var d1 = mD.split('-'), d2 = mH.split('-');
-    var mesesT = (parseInt(d2[0]) - parseInt(d1[0])) * 12 + (parseInt(d2[1]) - parseInt(d1[1])) + 1;
-    if (mesesT < 1) mesesT = 1;
-
-    // Solo pagos con concepto exacto al plan (sin historicos)
-    var mHFiltroPago = mHRaw || '9999-12';
-    var totalPagado = 0;
+    // ── MODELO NUEVO: vigencia por cuota ──────────────────────────
+    // Cada cuota cubre un rango [periodoDesde, periodoHasta]. Distribuimos el monto
+    // proporcionalmente entre los meses cubiertos.
+    var pagadoPorMes = {};
+    var pagadoFueraRango = 0;
     (CUOTAS_DB.cuotas || []).forEach(function(row) {
       var docPago  = (row[0] || '').toString().trim();
       var concepto = (row[2] || '').toString().trim();
-      var mesPago  = normFecha((row[5] || '').toString().trim()).substring(0, 7);
       var monto    = Number(row[6]) || 0;
       if (docPago !== dni) return;
       if (concepto.indexOf('Historico') === 0) return;
       if (concepto !== insc.plan) return;
-      if (mesPago < mD || mesPago > mHFiltroPago) return;
-      totalPagado += monto;
+      if (monto <= 0) return;
+
+      var pD = normFecha((row[3]||'').toString().trim()).substring(0,7);
+      var pH = normFecha((row[4]||'').toString().trim()).substring(0,7);
+      if (!pD || !pH) {
+        var fp = normFecha((row[5]||'').toString().trim()).substring(0,7);
+        if (!pD) pD = fp;
+        if (!pH) pH = fp;
+      }
+      if (!pD || !pH) { pagadoFueraRango += monto; return; }
+      if (pD > pH) { var tmp = pD; pD = pH; pH = tmp; }
+
+      var nMeses = 1;
+      var iter = pD;
+      while (iter < pH) { nMeses++; iter = _mesSiguiente(iter); }
+      var montoPorMes = monto / nMeses;
+      iter = pD;
+      while (true) {
+        if (iter >= mD && iter <= mH) {
+          pagadoPorMes[iter] = (pagadoPorMes[iter] || 0) + montoPorMes;
+        } else {
+          pagadoFueraRango += montoPorMes;
+        }
+        if (iter === pH) break;
+        iter = _mesSiguiente(iter);
+      }
     });
 
-    var totalRequerido = mesesT * pm;
-    var diff = totalPagado - totalRequerido;
+    var deudaInsc = 0;
+    var favorInsc = pagadoFueraRango;
+    var mesesT = 0;
+    var totalPagadoEnRango = 0;
+    var iterMes = mD;
+    while (true) {
+      mesesT++;
+      var pagadoMes = pagadoPorMes[iterMes] || 0;
+      totalPagadoEnRango += pagadoMes;
+      if (pagadoMes >= pm - 0.5) favorInsc += (pagadoMes - pm);
+      else deudaInsc += (pm - pagadoMes);
+      if (iterMes === mH) break;
+      iterMes = _mesSiguiente(iterMes);
+    }
 
-    var estadoInsc = diff >= 0 ? 'ok' : (diff > -pm ? 'parcial' : 'debe');
+    var totalRequerido = mesesT * pm;
+    var estadoInsc;
+    if (deudaInsc <= 0.5) estadoInsc = 'ok';
+    else if (deudaInsc < pm) estadoInsc = 'parcial';
+    else estadoInsc = 'debe';
     if ((prioridad[estadoInsc]||0) > (prioridad[estadoPeor]||0)) estadoPeor = estadoInsc;
 
-    if (diff < 0) deudaTotal += Math.abs(diff);
-    else          favorTotal += diff;
+    deudaTotal += deudaInsc;
+    favorTotal += favorInsc;
 
     detalle.push({
       plan: insc.plan, monto: pm,
-      mesesT: mesesT, totalPagado: totalPagado, totalRequerido: totalRequerido,
-      diff: diff, estado: estadoInsc,
+      mesesT: mesesT,
+      totalPagado: totalPagadoEnRango + pagadoFueraRango,
+      totalRequerido: totalRequerido,
+      diff: (totalPagadoEnRango + pagadoFueraRango) - totalRequerido,
+      deudaPorMes: deudaInsc, favorPorMes: favorInsc,
+      estado: estadoInsc,
       vigente: !insc.hasta || normFecha(insc.hasta).substring(0,7) >= mesHoy
     });
   });
@@ -6805,6 +6845,14 @@ function normFecha(f) {
   return s;
 }
 function enRango(f, desde, hasta){ var fn = normFecha(f); return (!desde || fn >= desde) && (!hasta || fn <= hasta); }
+
+// Helper: dado 'yyyy-MM' devuelve el mes siguiente como 'yyyy-MM' (rolling year).
+function _mesSiguiente(yyyymm) {
+  var p = String(yyyymm||'').split('-');
+  var yyyy = parseInt(p[0],10), mm = parseInt(p[1],10) + 1;
+  if (mm > 12) { yyyy++; mm = 1; }
+  return yyyy + '-' + String(mm).padStart(2,'0');
+}
 
 function rptDeudores() {
   var cat = document.getElementById('rCat').value;
