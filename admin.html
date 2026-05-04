@@ -1592,7 +1592,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.16-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.17-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3473,6 +3473,8 @@ function calcularEstadoTiempoReal(f) {
     planMonto:      planMonto,
     saldoNeto:      favorTotal - deudaTotal,
     ajusteSaldo:    ajuste,
+    // Flag util para reportes: ¿tiene al menos una insc vigente HOY?
+    tieneVigente:   inscVigentes.length > 0,
     detalle:        detalle
   };
 }
@@ -6842,11 +6844,13 @@ function rptAlDia() {
   var cat = document.getElementById('rCat').value;
   var plan = getPlanFiltro();
   var rows = [];
-  // "Vigente hasta": ultimo dia del mes actual + meses cubiertos por saldo a favor.
   var hoy = new Date();
   DB.jugadores.slice(1).filter(function(f){ var a = f[COL.ACTIVO]; return a===true||String(a).toLowerCase()==='si'; }).forEach(function(f){
     var cv = estadoCuotaV2(f);
     if(cv.estado !== 'ok' && cv.estado !== 'vence') return;
+    // Solo socios con al menos UNA inscripcion vigente HOY (evita mostrar "al dia"
+    // a socios cuyas inscripciones expiraron — ej. hasta=Abril, hoy=Mayo).
+    if (!cv.tieneVigente) return;
     if(cat && String(f[COL.CATEGORIA_APP]||'').trim() !== String(cat).trim()) return;
     if(plan && !socioTienePlan(f[COL.DNI]||f[COL.TARJETA]||'', plan)) return;
     var pm = Number(cv.planMonto) || 0;
