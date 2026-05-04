@@ -1592,7 +1592,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.21-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.22-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3608,6 +3608,112 @@ window.diagnosticoCobranza = function() {
   });
   console.table(raros);
   console.log('Total con anomalias:', raros.length);
+};
+
+// ── Reparar cuotas con valores raros (consecuencia del escalado proporcional viejo) ──
+window.repararCuotasFeas = function(opts) {
+  opts = opts || {};
+  var dryRun = opts.dryRun !== false;
+  var soloDni = opts.dni ? String(opts.dni).trim() : '';
+  var groups = {};
+  CUOTAS_DB.cuotas.forEach(function(c) {
+    if (!c._fsId) return;
+    var concepto = (c[2]||'').toString().trim();
+    if (concepto.indexOf('Historico') === 0) return;
+    var dni = (c[0]||'').toString().trim();
+    if (soloDni && dni !== soloDni) return;
+    var key = [dni, c[5]||'', c[7]||'', c[8]||'', c[3]||'', c[4]||''].join('||');
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(c);
+  });
+  var cambios = [];
+  Object.keys(groups).forEach(function(key) {
+    var grupo = groups[key];
+    if (grupo.length < 2) return;
+    var dni = (grupo[0][0]||'').toString().trim();
+    var total = grupo.reduce(function(s, c){ return s + Number(c[6]||0); }, 0);
+    var inscs = grupo.map(function(c) {
+      return (DB.inscripciones||[]).find(function(i){
+        return (i.dni||'').toString().trim() === dni && i.plan === c[2];
+      });
+    });
+    if (inscs.some(function(i){ return !i; })) return;
+    var sugeridos = grupo.map(function(c, i) {
+      var pm = Number(inscs[i].monto) || 0;
+      var pD = c[3] ? normFecha(c[3]).substring(0,7) : '';
+      var pH = c[4] ? normFecha(c[4]).substring(0,7) : '';
+      var nMeses = 1;
+      if (pD && pH) {
+        var iter = pD;
+        while (iter < pH) { nMeses++; iter = _mesSiguiente(iter); }
+      }
+      return pm * nMeses;
+    });
+    var sumSug = sugeridos.reduce(function(s,x){ return s+x; }, 0);
+    var todoLimpio = grupo.every(function(c, i){
+      return Math.abs(Number(c[6]||0) - sugeridos[i]) <= 0.5;
+    });
+    if (todoLimpio) return;
+    var nuevoMontos = sugeridos.slice();
+    var pendiente = sumSug - total;
+    var idxsOrden = nuevoMontos.map(function(_, i){ return i; }).sort(function(a,b){
+      return nuevoMontos[b] - nuevoMontos[a];
+    });
+    if (pendiente > 0) {
+      for (var k = 0; k < idxsOrden.length && pendiente > 0.5; k++) {
+        var ix = idxsOrden[k];
+        var resto = Math.min(pendiente, nuevoMontos[ix]);
+        nuevoMontos[ix] -= resto;
+        pendiente -= resto;
+      }
+    } else if (pendiente < 0) {
+      nuevoMontos[idxsOrden[0]] += (-pendiente);
+    }
+    grupo.forEach(function(c, i){
+      var oldM = Number(c[6]||0);
+      var newM = nuevoMontos[i];
+      if (Math.abs(oldM - newM) > 0.5) {
+        cambios.push({
+          fsId: c._fsId, dni: dni, socio: (c[1]||'').toString().trim(),
+          plan: c[2], fechaPago: c[5],
+          oldMonto: oldM, newMonto: newM, diff: newM - oldM
+        });
+      }
+    });
+  });
+  if (!cambios.length) { console.log('%c[repararCuotasFeas] No hay cuotas para limpiar.', 'color:#6de097'); return []; }
+  console.log('%c[repararCuotasFeas] cambios detectados: ' + cambios.length, 'color:var(--secondary);font-weight:bold');
+  console.table(cambios);
+  if (dryRun) {
+    console.log('%c==== MODO SIMULACION ====', 'background:#ffc107;color:#000;font-weight:bold;padding:4px;');
+    console.log('Para aplicar: repararCuotasFeas({dryRun: false})');
+    console.log('Para 1 socio:  repararCuotasFeas({dni: "DNI_AQUI"})');
+    return cambios;
+  }
+  if (!confirm('Aplicar ' + cambios.length + ' cambios de monto a Firestore? Esto NO se puede revertir automaticamente.')) {
+    console.log('Cancelado.'); return [];
+  }
+  var promesas = [];
+  for (var b = 0; b < cambios.length; b += 400) {
+    var batch = db.batch();
+    cambios.slice(b, b+400).forEach(function(ch){
+      batch.update(db.collection('cuotas').doc(ch.fsId), { monto: ch.newMonto });
+    });
+    promesas.push(batch.commit());
+  }
+  return Promise.all(promesas).then(function(){
+    console.log('%cOK, aplicados ' + cambios.length + ' cambios.', 'color:#6de097;font-weight:bold');
+    cambios.forEach(function(ch){
+      var idx = CUOTAS_DB.cuotas.findIndex(function(c){ return c._fsId === ch.fsId; });
+      if (idx >= 0) CUOTAS_DB.cuotas[idx][6] = ch.newMonto;
+    });
+    renderCuotas(); renderPlayers();
+    toast('Reparados ' + cambios.length + ' montos de cuotas', 'ok');
+    return cambios.length;
+  }).catch(function(e){
+    console.error('Error aplicando:', e);
+    toast('Error: ' + (e.message||e), 'err');
+  });
 };// -- RENDER SOCIOS ------------------------------------------------
 function renderPlayers() {
   // Si el filtro es Inactivos y no están cargados, cargarlos primero
