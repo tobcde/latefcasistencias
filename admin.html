@@ -1609,7 +1609,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.31-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.32-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3988,12 +3988,8 @@ function renderPlayers() {
       if(cv.saldoAFavor > 0) lb += ' (+$' + Number(cv.saldoAFavor).toLocaleString('es-AR') + ')';
     } else if(est==='debe'){
       lb = 'DEBE $' + Number(cv.deuda).toLocaleString('es-AR');
-      var _desg = desgloseDeudaSocio(cv);
-      if (_desg) lb += ' (' + _desg + ')';
     } else if(est==='parcial'){
       lb = 'PARCIAL - Falta $' + Number(cv.deuda).toLocaleString('es-AR');
-      var _desg2 = desgloseDeudaSocio(cv);
-      if (_desg2) lb += ' (' + _desg2 + ')';
     } else { lb = 'Sin plan'; }
 
     var bc = cc !== 'transparent' ? cc : 'var(--primary)';
@@ -4893,10 +4889,9 @@ function abrirM(ai) {
       }
     } else {
       ecHtml += '<span style="color:var(--red);font-weight:700;">DEBE $' + Number(cv.deudaActividad).toLocaleString('es-AR') + '</span>';
-      var _dDesg = desgloseDeudaSocio(cv);
-      if (_dDesg) ecHtml += '<div style="font-size:11px;color:var(--red);margin-top:2px;">' + esc(_dDesg) + '</div>';
     }
     ecHtml += ' <small style="color:var(--muted);">(' + decorarPlanNom(cv.planNom) + ')</small></div>';
+    if (cv.deudaActividad > 0) ecHtml += desgloseDeudaSocioHTML(cv);
   } else { ecHtml = '<span style="color:var(--muted);">Sin plan asignado</span>'; }
   document.getElementById('m-estado-cuota').innerHTML = ecHtml;
   // Info del ajuste aplicado + historial
@@ -5559,10 +5554,9 @@ function guardarAjusteSaldo() {
           }
         } else {
           ecHtml += '<span style="color:var(--red);font-weight:700;">DEBE $' + Number(cv.deudaActividad).toLocaleString('es-AR') + '</span>';
-          var _dDesg2 = desgloseDeudaSocio(cv);
-          if (_dDesg2) ecHtml += '<div style="font-size:11px;color:var(--red);margin-top:2px;">' + esc(_dDesg2) + '</div>';
         }
         ecHtml += ' <small style="color:var(--muted);">(' + decorarPlanNom(cv.planNom) + ')</small></div>';
+        if (cv.deudaActividad > 0) ecHtml += desgloseDeudaSocioHTML(cv);
       } else { ecHtml = '<span style="color:var(--muted);">Sin plan asignado</span>'; }
       var ec = document.getElementById('m-estado-cuota'); if(ec) ec.innerHTML = ecHtml;
       renderAjusteSaldoInfo(dni, cv);
@@ -7320,18 +7314,31 @@ function _mesNombreCorto(yyyymm) {
   return anio === anioActual ? nombre : nombre + ' ' + anio;
 }
 
-function desgloseDeudaSocio(cv) {
+function desgloseDeudaSocioHTML(cv) {
   if (!cv || !cv.detalle) return '';
-  var partes = [];
+  var filas = [];
   cv.detalle.forEach(function(d){
     if (!d.mesesAdeudados || !d.mesesAdeudados.length) return;
-    var meses = d.mesesAdeudados.map(function(m){
-      var nm = _mesNombreCorto(m.mes);
-      return m.parcial ? nm + ' (parcial $' + Number(m.falta).toLocaleString('es-AR') + ')' : nm;
-    }).join(' + ');
-    partes.push(d.plan + ': ' + meses);
+    d.mesesAdeudados.forEach(function(m){
+      filas.push({ mes: m.mes, plan: d.plan, falta: m.falta, parcial: m.parcial });
+    });
   });
-  return partes.join(' · ');
+  if (!filas.length) return '';
+  filas.sort(function(a, b){ return a.mes.localeCompare(b.mes) || a.plan.localeCompare(b.plan); });
+  var html = '<div style="margin-top:6px;padding:8px 10px;background:rgba(220,53,69,.08);border-left:3px solid var(--red);border-radius:4px;font-size:11px;">'
+    + '<div style="font-weight:700;color:var(--red);margin-bottom:4px;">Detalle de la deuda:</div>'
+    + '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+  filas.forEach(function(f){
+    var nombreMes = _mesNombreCorto(f.mes);
+    var parcialNote = f.parcial ? ' <span style="color:var(--muted);font-size:10px;">(parcial)</span>' : '';
+    html += '<tr>'
+      + '<td style="padding:2px 4px;color:var(--muted);width:35%;">' + esc(nombreMes) + '</td>'
+      + '<td style="padding:2px 4px;width:40%;">' + esc(f.plan) + parcialNote + '</td>'
+      + '<td style="padding:2px 4px;text-align:right;color:var(--red);font-weight:700;">$' + Number(f.falta).toLocaleString('es-AR') + '</td>'
+      + '</tr>';
+  });
+  html += '</table></div>';
+  return html;
 }
 
 function _mesSiguiente(yyyymm) {
