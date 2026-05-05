@@ -1000,6 +1000,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
         <div class="modal-subtitle" id="m-dni-sub"></div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;">
+        <button class="btn-editar" id="btn-editar-id" onclick="abrirModalEditId()" title="Editar nombre / apellido / DNI">&#x1F4DD; Identidad</button>
         <button class="btn-editar" id="btn-convertir-profe" onclick="convertirSocioAProfe()" title="Crear profesor con el mismo DNI">&#x1F464; A Profesor</button>
         <button class="btn-editar" id="btn-editar-ficha" onclick="toggleEditarFicha()">&#x270F; Editar</button>
         <button class="btn-editar" id="btn-eliminar-socio" onclick="eliminarSocio()" title="Eliminar socio (soft delete)" style="color:var(--red);border-color:var(--red);">&#x1F5D1; Eliminar</button>
@@ -1334,6 +1335,38 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
   </div>
 </div>
 
+<!-- MODAL EDITAR IDENTIDAD (apellido / nombre / DNI) -->
+<div class="modal-overlay" id="modalEditId">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div><div class="modal-title">&#x1F4DD; Editar identidad</div></div>
+      <button class="modal-close" onclick="cerrarModalEditId()">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <div style="background:rgba(255,193,7,.1);border:1px solid rgba(255,193,7,.4);color:#ffc107;padding:8px 12px;border-radius:6px;margin-bottom:14px;font-size:11px;">
+        Si cambi&aacute;s el <b>DNI</b>, se reasignan autom&aacute;ticamente todas las cuotas, inscripciones, asistencias y auditor&iacute;as del socio. Puede tardar unos segundos.
+      </div>
+      <div class="filter-group" style="margin-bottom:10px;">
+        <label class="filter-label">Apellido</label>
+        <input id="mei-apellido" type="text" class="edit-input" style="width:100%;text-transform:uppercase;">
+      </div>
+      <div class="filter-group" style="margin-bottom:10px;">
+        <label class="filter-label">Nombre</label>
+        <input id="mei-nombre" type="text" class="edit-input" style="width:100%;text-transform:uppercase;">
+      </div>
+      <div class="filter-group" style="margin-bottom:14px;">
+        <label class="filter-label">DNI / Documento</label>
+        <input id="mei-dni" type="text" class="edit-input" style="width:100%;" inputmode="numeric">
+        <div id="mei-dni-info" style="font-size:10px;color:var(--muted);margin-top:4px;"></div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-save" onclick="guardarEditId()" style="flex:1;">GUARDAR</button>
+        <button class="btn btn-secondary" onclick="cerrarModalEditId()">CANCELAR</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- TAB AYUDA -->
 <div id="tab-ayuda" class="tab-content" style="display:none;">
 <div style="padding:20px;max-width:960px;margin:0 auto;">
@@ -1609,7 +1642,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.32-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.33-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -2592,6 +2625,69 @@ function _fsDispatch(action, p, ok, err) {
       db.collection('socios').doc(dniNorm).set(doc)
         .then(function(){ _contarEscrituras(1); DB.jugadores.push(socioToRow({data:function(){return doc;},id:dniNorm}, dniNorm)); renderPlayers(); cb({ok:true}); })
         .catch(function(e){ cbErr(e.message); });
+      break;
+    }
+
+    case 'cambiarIdentidadSocio': {
+      var oldDni = String(p.oldDni||'').replace(/\./g,'').replace(/\s/g,'').trim();
+      var newDni = String(p.newDni||'').replace(/\./g,'').replace(/\s/g,'').trim();
+      var apellidoNuevo = (p.apellido||'').toString().trim();
+      var nombreNuevo = (p.nombre||'').toString().trim();
+      if (!oldDni || !newDni || !apellidoNuevo || !nombreNuevo) { cbErr('Faltan datos'); break; }
+      var cambioDni = oldDni !== newDni;
+      var nombreCompleto = apellidoNuevo + ' ' + nombreNuevo;
+      var workflow = Promise.resolve();
+      if (cambioDni) {
+        workflow = workflow.then(function(){
+          return db.collection('socios').doc(newDni).get().then(function(checkDoc){
+            if (checkDoc.exists) throw new Error('Ya existe un socio con DNI ' + newDni);
+          });
+        });
+        workflow = workflow.then(function(){
+          return db.collection('socios').doc(oldDni).get().then(function(oldDoc){
+            if (!oldDoc.exists) throw new Error('Socio ' + oldDni + ' no existe');
+            var data = oldDoc.data() || {};
+            data.dni = newDni; data.apellido = apellidoNuevo; data.nombre = nombreNuevo;
+            var batch = db.batch();
+            batch.set(db.collection('socios').doc(newDni), data);
+            batch.delete(db.collection('socios').doc(oldDni));
+            return batch.commit();
+          });
+        });
+      } else {
+        workflow = workflow.then(function(){
+          return db.collection('socios').doc(oldDni).update({ apellido: apellidoNuevo, nombre: nombreNuevo });
+        });
+      }
+      var counters = { cuotasActualizadas: 0, inscripcionesActualizadas: 0, asistenciasActualizadas: 0, auditoriasActualizadas: 0 };
+      workflow = workflow.then(function(){
+        if (!cambioDni) return;
+        return Promise.all([
+          db.collection('cuotas').where('dni','==',oldDni).get(),
+          db.collection('inscripciones').where('dni','==',oldDni).get(),
+          db.collection('asistencias').where('dni','==',oldDni).get(),
+          db.collection('auditoria_saldos').where('dni','==',oldDni).get()
+        ]).then(function(snaps){
+          var allOps = [];
+          snaps[0].forEach(function(d){ allOps.push({ref:d.ref, data:{dni:newDni, nombre:nombreCompleto}}); });
+          snaps[1].forEach(function(d){ allOps.push({ref:d.ref, data:{dni:newDni, nombre:nombreCompleto}}); });
+          snaps[2].forEach(function(d){ allOps.push({ref:d.ref, data:{dni:newDni, nombre:nombreCompleto}}); });
+          snaps[3].forEach(function(d){ allOps.push({ref:d.ref, data:{dni:newDni, nombreSocio:apellidoNuevo+', '+nombreNuevo}}); });
+          counters.cuotasActualizadas = snaps[0].size;
+          counters.inscripcionesActualizadas = snaps[1].size;
+          counters.asistenciasActualizadas = snaps[2].size;
+          counters.auditoriasActualizadas = snaps[3].size;
+          var promesas = [];
+          for (var i = 0; i < allOps.length; i += 400) {
+            var b = db.batch();
+            allOps.slice(i, i+400).forEach(function(op){ b.update(op.ref, op.data); });
+            promesas.push(b.commit());
+          }
+          return Promise.all(promesas);
+        });
+      });
+      workflow.then(function(){ _contarEscrituras(1 + counters.cuotasActualizadas + counters.inscripcionesActualizadas + counters.asistenciasActualizadas + counters.auditoriasActualizadas); cb(Object.assign({ok:true}, counters)); })
+              .catch(function(e){ cbErr(e.message || String(e)); });
       break;
     }
 
@@ -5453,6 +5549,65 @@ function renderHistorialAjusteSaldo(dni) {
 
 // Cache del cv que mostramos al abrir el modal (para no recalcular en preview)
 var _esModalCtx = null;
+
+// ── Modal Editar Identidad (apellido / nombre / DNI) ───────────────
+var _meiCtx = null;
+function abrirModalEditId() {
+  if (!itemSel || !itemSel.dni) return alert('Abri primero la ficha de un socio');
+  var f = DB.jugadores[itemSel.arrIdx]; if (!f) return;
+  _meiCtx = { f: f, oldDni: itemSel.dni.toString(), arrIdx: itemSel.arrIdx };
+  document.getElementById('mei-apellido').value = (f[COL.APELLIDO]||'').toString();
+  document.getElementById('mei-nombre').value   = (f[COL.NOMBRE]||'').toString();
+  document.getElementById('mei-dni').value      = _meiCtx.oldDni;
+  document.getElementById('mei-dni-info').innerText = '';
+  document.getElementById('modalEditId').classList.add('open');
+}
+function cerrarModalEditId(){ document.getElementById('modalEditId').classList.remove('open'); _meiCtx = null; }
+
+function guardarEditId() {
+  if (!_meiCtx) return;
+  var f = _meiCtx.f;
+  var oldDni = _meiCtx.oldDni;
+  var apellido = (document.getElementById('mei-apellido').value||'').trim().toUpperCase();
+  var nombre   = (document.getElementById('mei-nombre').value||'').trim().toUpperCase();
+  var newDni   = (document.getElementById('mei-dni').value||'').replace(/\./g,'').replace(/\s/g,'').trim();
+  if (!apellido || !nombre || !newDni) return alert('Completá apellido, nombre y DNI');
+  var apellidoOld = (f[COL.APELLIDO]||'').toString().toUpperCase();
+  var nombreOld   = (f[COL.NOMBRE]||'').toString().toUpperCase();
+  var cambioDni   = newDni !== oldDni;
+  var cambioNom   = apellido !== apellidoOld || nombre !== nombreOld;
+  if (!cambioDni && !cambioNom) return alert('No hay cambios para guardar');
+  if (cambioDni) {
+    var msg = '¿Cambiar el DNI de ' + apellido + ', ' + nombre + ' de ' + oldDni + ' → ' + newDni + '?\n\n'
+            + 'Esto reasigna TODAS las cuotas, inscripciones, asistencias y auditorías del socio. NO se puede revertir automáticamente.';
+    if (!confirm(msg)) return;
+  }
+  mostrarLoader(cambioDni ? 'Cambiando DNI y reasignando registros...' : 'Guardando...');
+  callScript({
+    action: 'cambiarIdentidadSocio',
+    oldDni: oldDni, newDni: newDni, apellido: apellido, nombre: nombre,
+    pass: TOKEN
+  }, function(res){
+    ocultarLoader();
+    f[COL.APELLIDO] = apellido;
+    f[COL.NOMBRE]   = nombre;
+    if (cambioDni) {
+      f[COL.DNI] = newDni;
+      (CUOTAS_DB.cuotas||[]).forEach(function(c){ if ((c[0]||'').toString().trim() === oldDni) c[0] = newDni; });
+      (DB.inscripciones||[]).forEach(function(i){ if ((i.dni||'').toString().trim() === oldDni) i.dni = newDni; });
+      (asistencias||[]).forEach(function(r){ if ((r[3]||'').toString().trim() === oldDni) r[3] = newDni; });
+      itemSel.dni = newDni; itemSel.row = newDni;
+    }
+    cerrarModalEditId();
+    document.getElementById('m-nombre').innerText = apellido + ', ' + nombre;
+    document.getElementById('m-dni-sub').innerText = 'Doc: ' + (cambioDni ? newDni : oldDni) + (f[COL.FECHA_NAC] ? ' | Nac: ' + f[COL.FECHA_NAC] : '');
+    try { renderPlayers(); } catch(_){}
+    var n = (res && res.cuotasActualizadas !== undefined)
+      ? ' (' + res.cuotasActualizadas + ' cuotas, ' + (res.inscripcionesActualizadas||0) + ' inscripciones, ' + (res.asistenciasActualizadas||0) + ' asistencias)'
+      : '';
+    toast('Identidad actualizada' + n, 'ok');
+  }, function(e){ ocultarLoader(); alert('Error: ' + e); });
+}
 
 function abrirModalEditSaldo() {
   if(!itemSel || !itemSel.dni) return alert('Abri primero la ficha de un socio');
