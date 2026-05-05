@@ -1469,7 +1469,7 @@ function renderHistorial() {
     var fecha=r.fecha||''; if(desde&&fecha<desde)return; if(hasta&&fecha>hasta)return;
     var dni=r.dni||'',tid=r.turnoId||'';
     if(!asistMap[dni]) asistMap[dni]={};
-    asistMap[dni][tid] = r.presente===true;
+    asistMap[dni][tid] = { pres: r.presente===true, sem: (r.semaforo||'').toString().trim().toLowerCase() };
   });
 
   var html = '<table class="hist-table"><thead><tr><th>Nombre</th>';
@@ -1478,26 +1478,42 @@ function renderHistorial() {
     var lbl=t.label?t.label.split(' - ')[0]:'';
     html += '<th><div>'+dia+'</div><div style="font-size:10px;color:var(--primary);">'+lbl+'</div></th>';
   });
-  html += '<th>%</th></tr></thead><tbody>';
+  html += '<th title="Verdes">&#x1F7E2;</th><th title="Amarillos">&#x1F7E1;</th><th title="Rojos">&#x1F534;</th><th>%</th></tr></thead><tbody>';
 
   jug.sort(function(a,b){return (a.apellido||'').localeCompare(b.apellido||'');})
   .forEach(function(f) {
     var dni=(f.dni||'').toString(), nombre=(f.apellido||'')+', '+(f.nombre||'');
-    var pres=0, tot=0;
+    var pres=0, tot=0, nV=0, nA=0, nR=0;
     html += '<tr><td title="DNI: '+dni+'">'+nombre+'</td>';
     turnos.forEach(function(t) {
       var jA=asistMap[dni]||{};
-      if(t.turnoId in jA){ tot++; if(jA[t.turnoId]){pres++;html+='<td class="pres-cell">&#x2713;</td>';}else html+='<td class="ause-cell">&#x2717;</td>'; }
-      else html += '<td class="no-cell">-</td>';
+      var rec = jA[t.turnoId];
+      if(rec){
+        tot++;
+        if(rec.pres){
+          pres++;
+          if (rec.sem === 'verde')         { nV++; html += '<td class="pres-cell" title="Verde">&#x1F7E2;</td>'; }
+          else if (rec.sem === 'amarillo') { nA++; html += '<td class="pres-cell" title="Amarillo">&#x1F7E1;</td>'; }
+          else if (rec.sem === 'rojo')     { nR++; html += '<td class="pres-cell" title="Rojo">&#x1F534;</td>'; }
+          else                                   { html += '<td class="pres-cell">&#x2713;</td>'; }
+        } else {
+          html += '<td class="ause-cell">&#x2717;</td>';
+        }
+      } else {
+        html += '<td class="no-cell">-</td>';
+      }
     });
     var pct=tot>0?Math.round(pres/tot*100):null;
     var col=pct===null?'var(--muted)':pct>=75?'#6de097':pct>=50?'var(--secondary)':'var(--red)';
+    html += '<td style="color:#22c55e;font-weight:700;">'+(nV||'')+'</td>';
+    html += '<td style="color:#eab308;font-weight:700;">'+(nA||'')+'</td>';
+    html += '<td style="color:#ef4444;font-weight:700;">'+(nR||'')+'</td>';
     html += '<td style="font-weight:700;color:'+col+';">'+(pct!==null?pct+'%':'-')+'</td></tr>';
   });
   html += '</tbody></table>';
 
   var totP=0,totR=0;
-  jug.forEach(function(f){ var dni=(f.dni||'').toString(),jA=asistMap[dni]||{}; turnos.forEach(function(t){ if(t.turnoId in jA){totR++;if(jA[t.turnoId])totP++;} }); });
+  jug.forEach(function(f){ var dni=(f.dni||'').toString(),jA=asistMap[dni]||{}; turnos.forEach(function(t){ if(t.turnoId in jA){totR++; if(jA[t.turnoId].pres) totP++;} }); });
   var pG=totR>0?Math.round(totP/totR*100):0;
 
   document.getElementById('hist-tabla').innerHTML = html;
