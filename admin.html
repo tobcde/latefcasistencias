@@ -89,6 +89,17 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 .toggle-asist::after{content:'';position:absolute;width:22px;height:22px;border-radius:50%;background:white;top:3px;transition:left .2s;}
 .toggle-asist.presente::after{left:27px;}
 .toggle-asist.ausente::after{left:3px;}
+/* Semaforo de emociones (admin) */
+.sem-group-admin{display:flex;gap:4px;margin-right:10px;flex-shrink:0;transition:opacity .15s;}
+.sem-group-admin.disabled{opacity:.25;pointer-events:none;}
+.sem-btn-admin{width:22px;height:22px;border-radius:50%;border:2px solid transparent;cursor:pointer;display:inline-block;padding:0;transition:transform .1s,border-color .1s;}
+.sem-btn-admin:hover{transform:scale(1.18);}
+.sem-btn-admin.verde{background:#22c55e;}
+.sem-btn-admin.amarillo{background:#eab308;}
+.sem-btn-admin.rojo{background:#ef4444;}
+.sem-btn-admin.activo{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.3);}
+.sem-btn-admin:not(.activo){opacity:.45;}
+.sem-btn-admin:not(.activo):hover{opacity:.85;}
 
 /* CUOTAS */
 .cuotas-container{padding:20px;max-width:1200px;margin:0 auto;}
@@ -1593,7 +1604,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.23-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.24-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -2635,9 +2646,11 @@ function _fsDispatch(action, p, ok, err) {
           snap.forEach(function(doc){ batch.delete(doc.ref); });
           registros.forEach(function(r){
             var docId = (r[0]+'_'+r[1]+'_'+r[3]).replace(/[^a-zA-Z0-9_-]/g,'_');
-            batch.set(db.collection('asistencias').doc(docId), {
+            var doc = {
               fecha:r[0], turnoId:r[1], label:r[2], dni:r[3].toString(), nombre:r[4], presente:r[5]===true||r[5]==='true'
-            });
+            };
+            if (doc.presente && r[6]) doc.semaforo = r[6];
+            batch.set(db.collection('asistencias').doc(docId), doc);
           });
           return batch.commit().then(function(){
             // Contar escrituras del batch: deletes + sets
@@ -4442,8 +4455,10 @@ function matcheaTurno(catJugador, catBase, liga) {
   return false;
 }
 
+var asistSemaforoActual = {}; // estado de semaforo en admin: {dni: 'verde'|'amarillo'|'rojo'}
+
 function cargarListaAsist(turnoId) {
-  asistActual = {}; // limpiar estado anterior
+  asistActual = {}; asistSemaforoActual = {}; // limpiar estado anterior
   var partes = turnoId.split('_');
   var hIdx = parseInt(partes[1]);
   var hd = DB.horarios[hIdx];
@@ -4461,13 +4476,20 @@ function cargarListaAsist(turnoId) {
     return true;
   });
 
-  // Cargar asistencias previas
+  // Cargar asistencias previas (incluyendo semaforo)
   var previas = {};
+  var previasSem = {};
   asistencias.filter(function(r){ return r[1] === turnoId; }).forEach(function(r){
     previas[r[3]] = (r[5]===true||String(r[5]).toLowerCase()==='true');
+    var sem = (r[6]||'').toString().trim().toLowerCase();
+    if (sem === 'verde' || sem === 'amarillo' || sem === 'rojo') previasSem[r[3]] = sem;
   });
   var tienePrevias = Object.keys(previas).length > 0;
-  lista.forEach(function(f){ var d = (f[COL.DNI]||f[COL.TARJETA]||'').toString(); asistActual[d] = d in previas ? previas[d] : true; });
+  lista.forEach(function(f){
+    var d = (f[COL.DNI]||f[COL.TARJETA]||'').toString();
+    asistActual[d] = d in previas ? previas[d] : true;
+    if (previasSem[d]) asistSemaforoActual[d] = previasSem[d];
+  });
 
   var nP = Object.values(asistActual).filter(Boolean).length;
   var nA = lista.length - nP;
@@ -4497,8 +4519,15 @@ function cargarListaAsist(turnoId) {
     var _fotoHtml = _fotoUrl
       ? '<img src="' + _fotoUrl + '" loading="lazy" class="asist-foto" onerror="this.style.display=\'none\';var ph=this.nextElementSibling;if(ph)ph.style.display=\'flex\';"><div class="asist-foto-ph" style="display:none;">&#128100;</div>'
       : '<div class="asist-foto-ph">&#128100;</div>';
+    var semSel = asistSemaforoActual[dni] || '';
+    var semHtml = '<div class="sem-group-admin ' + (pres ? '' : 'disabled') + '" id="sema-' + dni + '" title="C&oacute;mo se sinti&oacute; el alumno hoy">'
+      + '<button class="sem-btn-admin verde'    + (semSel==='verde'    ? ' activo' : '') + '" onclick="toggleSemaforoAdmin(\''+dni+'\',\'verde\')"    title="Bien"></button>'
+      + '<button class="sem-btn-admin amarillo' + (semSel==='amarillo' ? ' activo' : '') + '" onclick="toggleSemaforoAdmin(\''+dni+'\',\'amarillo\')" title="Regular"></button>'
+      + '<button class="sem-btn-admin rojo'     + (semSel==='rojo'     ? ' activo' : '') + '" onclick="toggleSemaforoAdmin(\''+dni+'\',\'rojo\')"     title="Mal"></button>'
+      + '</div>';
     html += '<div class="asist-row" data-dni="' + dni + '" data-nom="' + nom.toLowerCase() + '">';
     html += '<div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">' + _fotoHtml + '<div style="min-width:0;flex:1;"><div class="asist-nombre">' + nom + catBadge + '</div><div class="asist-info">Doc: ' + dni + ' | ' + (f[COL.CATEGORIA_APP]||'') + (catSec && esPorSecundaria ? ' &rarr; ' + catSec : '') + '</div></div></div>';
+    html += semHtml;
     html += '<button class="toggle-asist ' + (pres?'presente':'ausente') + '" id="tas-' + dni + '" onclick="toggleAsist(\'' + dni + '\',' + lista.length + ')"></button>';
     html += '</div>';
   });
@@ -4519,6 +4548,7 @@ function marcarTodosPresentes(total) {
     var dni = btn.parentElement.dataset.dni;
     if(dni) asistActual[dni] = true;
   });
+  document.querySelectorAll('.sem-group-admin').forEach(function(g){ g.classList.remove('disabled'); });
   document.getElementById('cnt-p').innerText = total;
   document.getElementById('cnt-a').innerText = 0;
 }
@@ -4527,9 +4557,36 @@ function toggleAsist(dni, total) {
   asistActual[dni] = !asistActual[dni];
   var btn = document.getElementById('tas-' + dni) || document.querySelector('.asist-row[data-dni="' + dni + '"] .toggle-asist');
   if(btn){ btn.classList.toggle('presente', asistActual[dni]); btn.classList.toggle('ausente', !asistActual[dni]); }
+  var grp = document.getElementById('sema-'+dni);
+  if (grp) {
+    if (asistActual[dni]) {
+      grp.classList.remove('disabled');
+    } else {
+      grp.classList.add('disabled');
+      delete asistSemaforoActual[dni];
+      grp.querySelectorAll('.sem-btn-admin').forEach(function(b){ b.classList.remove('activo'); });
+    }
+  }
   var nP = Object.values(asistActual).filter(Boolean).length;
   document.getElementById('cnt-p').innerText = nP;
   document.getElementById('cnt-a').innerText = total - nP;
+}
+
+function toggleSemaforoAdmin(dni, color) {
+  if (asistActual[dni] === false) return;
+  if (asistSemaforoActual[dni] === color) {
+    delete asistSemaforoActual[dni];
+  } else {
+    asistSemaforoActual[dni] = color;
+  }
+  var grp = document.getElementById('sema-'+dni);
+  if (!grp) return;
+  grp.querySelectorAll('.sem-btn-admin').forEach(function(b){ b.classList.remove('activo'); });
+  var sel = asistSemaforoActual[dni];
+  if (sel) {
+    var act = grp.querySelector('.sem-btn-admin.' + sel);
+    if (act) act.classList.add('activo');
+  }
 }
 
 function guardarAsist() {
@@ -4543,7 +4600,9 @@ function guardarAsist() {
   var lbl = hd ? ((hd[0]||'') + ' ' + (hd[1]||'') + ' - ' + (hd[4]||'')) : turnoId;
   var registros = Object.keys(asistActual).map(function(dni){
     var f = DB.jugadores.slice(1).find(function(j){ return (j[COL.DNI]||j[COL.TARJETA]||'').toString() === dni; });
-    return [fecha, turnoId, lbl, dni, (f ? (f[COL.APELLIDO]||'') + ' ' + (f[COL.NOMBRE]||'') : ''), asistActual[dni]];
+    var pres = asistActual[dni];
+    var sem = pres && asistSemaforoActual[dni] ? asistSemaforoActual[dni] : '';
+    return [fecha, turnoId, lbl, dni, (f ? (f[COL.APELLIDO]||'') + ' ' + (f[COL.NOMBRE]||'') : ''), pres, sem];
   });
   if(!registros.length) return alert('Sin alumnos para registrar');
   mostrarLoader('Guardando asistencia...');
@@ -7265,15 +7324,20 @@ function rptAsistenciaMatriz() {
     return;
   }
 
-  // Indexar asistencias por DNI+fecha
-  var idx = {}; // idx[dni][fecha] = true|false
+  // Indexar asistencias por DNI+fecha (presente + semaforo)
+  var idx = {};
+  var semIdx = {};
   asistFiltradas.forEach(function(r){
     var dni  = (r[3]||'').toString();
     var fecha= r[0]||'';
     var pres = r[5]===true || String(r[5]).toLowerCase()==='true';
     if(!idx[dni]) idx[dni] = {};
-    // Si hay varios registros del mismo socio el mismo dia, queda el ultimo
     idx[dni][fecha] = pres;
+    var sem = (r[6]||'').toString().trim().toLowerCase();
+    if (pres && (sem === 'verde' || sem === 'amarillo' || sem === 'rojo')) {
+      if (!semIdx[dni]) semIdx[dni] = {};
+      semIdx[dni][fecha] = sem;
+    }
   });
 
   // Socios activos con registros en el periodo, filtrados por cat
@@ -7334,9 +7398,12 @@ function rptAsistenciaMatriz() {
     html += '<td class="mat-nombre">' + nombre + '</td>';
     fechas.forEach(function(f){
       var val = idx[dni] ? idx[dni][f] : undefined;
+      var sem = semIdx[dni] ? semIdx[dni][f] : null;
       if(val === true){
         pres++; total++;
-        html += '<td class="mat-cell-pres" title="Presente">&#x2713;</td>';
+        var emoji = sem === 'verde' ? '&nbsp;&#x1F7E2;' : sem === 'amarillo' ? '&nbsp;&#x1F7E1;' : sem === 'rojo' ? '&nbsp;&#x1F534;' : '';
+        var titleP = sem ? 'Presente ' + sem : 'Presente';
+        html += '<td class="mat-cell-pres" title="' + titleP + '">&#x2713;' + emoji + '</td>';
       } else if(val === false){
         total++;
         html += '<td class="mat-cell-aus" title="Ausente">&#x2715;</td>';
