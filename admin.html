@@ -1609,7 +1609,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.28-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.29-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3709,6 +3709,117 @@ window.diagnosticoCobranza = function() {
 };
 
 // ── Reparar cuotas con valores raros (consecuencia del escalado proporcional viejo) ──
+// ── Escanear y reparar Cuotas Sociales con monto inconsistente ─────
+window.escanearInconsistenciasCS = function(opts) {
+  opts = opts || {};
+  var soloDni = opts.dni ? String(opts.dni).trim() : '';
+  var montoEstandar = opts.montoEstandar ? Number(opts.montoEstandar) : null;
+  var inconsistencias = [];
+  CUOTAS_DB.cuotas.forEach(function(c) {
+    var concepto = (c[2]||'').toString().trim();
+    if (concepto.indexOf('Historico') === 0) return;
+    if (!/cuota\s*social/i.test(concepto)) return;
+    var dni = (c[0]||'').toString().trim();
+    if (soloDni && dni !== soloDni) return;
+    var montoActual = Number(c[6])||0;
+    var insc = (DB.inscripciones||[]).find(function(i){
+      return (i.dni||'').toString().trim() === dni && /cuota\s*social/i.test(i.plan||'');
+    });
+    var inscMonto = montoEstandar !== null ? montoEstandar : (insc ? Number(insc.monto)||0 : 0);
+    if (inscMonto <= 0) return;
+    var pD = normFecha((c[3]||'').toString().trim()).substring(0,7);
+    var pH = normFecha((c[4]||'').toString().trim()).substring(0,7);
+    var nMeses = 1;
+    if (pD && pH) {
+      var iter = pD;
+      while (iter < pH) { nMeses++; iter = _mesSiguiente(iter); }
+    }
+    var esperado = inscMonto * nMeses;
+    if (Math.abs(montoActual - esperado) > 0.5) {
+      inconsistencias.push({
+        fsId: c._fsId, dni: dni, socio: (c[1]||'').toString().trim(),
+        periodoDesde: c[3], periodoHasta: c[4], fechaPago: c[5],
+        montoActual: montoActual, montoEsperado: esperado, diff: esperado - montoActual,
+        nMeses: nMeses, inscMonto: inscMonto
+      });
+    }
+  });
+  if (!inconsistencias.length) {
+    console.log('%c[escanearInconsistenciasCS] No hay inconsistencias en Cuota Social.', 'color:#6de097');
+    return [];
+  }
+  console.log('%c[escanearInconsistenciasCS] ' + inconsistencias.length + ' inconsistencias detectadas:', 'color:var(--secondary);font-weight:bold');
+  console.table(inconsistencias);
+  return inconsistencias;
+};
+
+window.repararCuotasSocialFeas = function(opts) {
+  opts = opts || {};
+  var dryRun = opts.dryRun !== false;
+  var inconsistencias = window.escanearInconsistenciasCS(opts);
+  if (!inconsistencias.length) return [];
+  var cambios = [];
+  var sinPair = [];
+  inconsistencias.forEach(function(inc) {
+    var grupo = CUOTAS_DB.cuotas.filter(function(c){
+      return (c[0]||'').toString().trim() === inc.dni
+          && (c[5]||'') === inc.fechaPago
+          && (c[3]||'') === inc.periodoDesde
+          && (c[4]||'') === inc.periodoHasta
+          && (c[2]||'').indexOf('Historico') !== 0;
+    });
+    if (grupo.length < 2) { sinPair.push(Object.assign({motivo:'No hay cuota deportiva en el mismo cobro'}, inc)); return; }
+    var csCuota = grupo.find(function(c){ return /cuota\s*social/i.test(c[2]||''); });
+    var deportiva = grupo.find(function(c){ return !/cuota\s*social/i.test(c[2]||''); });
+    if (!csCuota || !deportiva) { sinPair.push(Object.assign({motivo:'Falta CS o deportiva'}, inc)); return; }
+    var csNuevo = inc.montoEsperado;
+    var diff = csNuevo - Number(csCuota[6]);
+    var depNuevo = Number(deportiva[6]) - diff;
+    if (depNuevo < 0) { sinPair.push(Object.assign({motivo:'Deportiva quedaria negativa $'+depNuevo}, inc)); return; }
+    cambios.push({
+      socio: inc.socio, dni: inc.dni, fechaPago: inc.fechaPago,
+      cs_fsId: csCuota._fsId, cs_old: Number(csCuota[6]), cs_new: csNuevo,
+      dep_fsId: deportiva._fsId, dep_plan: deportiva[2], dep_old: Number(deportiva[6]), dep_new: depNuevo,
+      diff: diff
+    });
+  });
+  if (sinPair.length) {
+    console.warn('[repararCuotasSocialFeas] ' + sinPair.length + ' inconsistencias NO reparables automaticamente:');
+    console.table(sinPair);
+  }
+  if (!cambios.length) { console.log('%cNada que reparar.', 'color:var(--muted)'); return []; }
+  console.log('%c[repararCuotasSocialFeas] ' + cambios.length + ' correcciones a aplicar:', 'color:var(--secondary);font-weight:bold');
+  console.table(cambios);
+  if (dryRun) {
+    console.log('%c==== MODO SIMULACION ====', 'background:#ffc107;color:#000;font-weight:bold;padding:4px;');
+    console.log('Para aplicar: repararCuotasSocialFeas({dryRun: false})');
+    console.log('Para forzar $10k: repararCuotasSocialFeas({montoEstandar: 10000, dryRun: false})');
+    return cambios;
+  }
+  if (!confirm('Aplicar ' + cambios.length + ' correcciones? La suma de cada cobro se mantiene.')) return [];
+  var promesas = [];
+  for (var b = 0; b < cambios.length; b += 200) {
+    var batch = db.batch();
+    cambios.slice(b, b+200).forEach(function(ch){
+      batch.update(db.collection('cuotas').doc(ch.cs_fsId), { monto: ch.cs_new });
+      batch.update(db.collection('cuotas').doc(ch.dep_fsId), { monto: ch.dep_new });
+    });
+    promesas.push(batch.commit());
+  }
+  return Promise.all(promesas).then(function(){
+    cambios.forEach(function(ch){
+      var i1 = CUOTAS_DB.cuotas.findIndex(function(c){ return c._fsId === ch.cs_fsId; });
+      if (i1 >= 0) CUOTAS_DB.cuotas[i1][6] = ch.cs_new;
+      var i2 = CUOTAS_DB.cuotas.findIndex(function(c){ return c._fsId === ch.dep_fsId; });
+      if (i2 >= 0) CUOTAS_DB.cuotas[i2][6] = ch.dep_new;
+    });
+    renderCuotas(); renderPlayers();
+    toast('Reparados ' + cambios.length + ' pagos de Cuota Social', 'ok');
+    console.log('%cOK, aplicados ' + cambios.length + ' cambios.', 'color:#6de097;font-weight:bold');
+    return cambios.length;
+  }).catch(function(e){ console.error('Error:', e); toast('Error: ' + (e.message||e), 'err'); });
+};
+
 window.repararCuotasFeas = function(opts) {
   opts = opts || {};
   var dryRun = opts.dryRun !== false;
