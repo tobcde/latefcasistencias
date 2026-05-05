@@ -1301,21 +1301,26 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
       <div style="background:var(--bg);border-radius:8px;padding:14px;margin-bottom:14px;border:1px solid var(--border);">
         <div style="font-size:13px;font-weight:700;" id="es-nombre"></div>
         <div style="font-size:11px;color:var(--muted);margin-top:2px;" id="es-dni-lbl"></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px;">
           <div>
-            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Saldo neto actual</div>
-            <div style="font-size:18px;font-weight:800;" id="es-saldo-actual">-</div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Sin ajuste</div>
+            <div style="font-size:14px;font-weight:800;" id="es-saldo-natural">-</div>
           </div>
           <div>
             <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Ajuste vigente</div>
-            <div style="font-size:18px;font-weight:800;" id="es-ajuste-actual">-</div>
+            <div style="font-size:14px;font-weight:800;" id="es-ajuste-actual">-</div>
+          </div>
+          <div>
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Saldo efectivo</div>
+            <div style="font-size:14px;font-weight:800;" id="es-saldo-actual">-</div>
           </div>
         </div>
       </div>
       <div class="filter-group" style="margin-bottom:10px;">
-        <label class="filter-label">Nuevo ajuste (+ suma saldo a favor / &minus; genera deuda)</label>
-        <input id="es-nuevo-ajuste" type="number" step="0.01" class="edit-input" style="width:100%;" placeholder="0.00">
-        <div style="font-size:10px;color:var(--muted);margin-top:4px;">Reemplaza el ajuste anterior. Ej: 5000 = beca de $5000 a favor. -2000 = cargo de $2000.</div>
+        <label class="filter-label">&#x1F4B0; Saldo final deseado (+ a favor / &minus; debe / 0 al d&iacute;a)</label>
+        <input id="es-saldo-final" type="number" step="0.01" class="edit-input" style="width:100%;" placeholder="0.00" oninput="previsualizarAjusteSaldo()">
+        <div style="font-size:10px;color:var(--muted);margin-top:4px;">Pon&eacute; el saldo neto que quer&eacute;s que tenga el socio. Ej: <b>0</b> = al d&iacute;a, <b>+10000</b> = $10k a favor, <b>-5000</b> = $5k de deuda.</div>
+        <div id="es-preview-ajuste" style="font-size:11px;margin-top:6px;color:var(--muted);"></div>
       </div>
       <div class="filter-group" style="margin-bottom:14px;">
         <label class="filter-label">Motivo (obligatorio)</label>
@@ -1604,7 +1609,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.25-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.26-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3526,6 +3531,11 @@ function calcularEstadoTiempoReal(f) {
     }
   }
 
+  // Capturar estado natural (sin ajuste manual) para que el modal Edit Saldo
+  // pueda mostrar "saldo deseado" correctamente.
+  var deudaSinAjuste = deudaTotal;
+  var favorSinAjuste = favorTotal;
+
   // Ajuste manual (signed): + absorbe deuda primero, luego suma a favor.
   // - (negativo) consume favor primero, luego crea deuda.
   var ajuste = 0;
@@ -3561,6 +3571,10 @@ function calcularEstadoTiempoReal(f) {
     planMonto:      planMonto,
     saldoNeto:      favorTotal - deudaTotal,
     ajusteSaldo:    ajuste,
+    // Estado natural sin ajuste manual (para "saldo final deseado")
+    deudaSinAjuste: deudaSinAjuste,
+    favorSinAjuste: favorSinAjuste,
+    saldoNetoSinAjuste: favorSinAjuste - deudaSinAjuste,
     // Flag util para reportes: ¿tiene al menos una insc vigente HOY?
     tieneVigente:   inscVigentes.length > 0,
     detalle:        detalle
@@ -5297,38 +5311,81 @@ function renderHistorialAjusteSaldo(dni) {
     .catch(function(e){ el.innerHTML = '<div style="color:var(--muted);font-size:11px;">(historial no disponible)</div>'; });
 }
 
+// Cache del cv que mostramos al abrir el modal (para no recalcular en preview)
+var _esModalCtx = null;
+
 function abrirModalEditSaldo() {
   if(!itemSel || !itemSel.dni) return alert('Abri primero la ficha de un socio');
   var f = DB.jugadores[itemSel.arrIdx]; if(!f) return;
   var cv = estadoCuotaV2(f);
+  _esModalCtx = { f: f, cv: cv };
   document.getElementById('es-nombre').innerText = (f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'');
   document.getElementById('es-dni-lbl').innerText = 'DNI ' + itemSel.dni;
-  var neto = Number(cv.saldoNeto)||0;
-  var netoColor = neto >= 0 ? '#6de097' : 'var(--red)';
-  document.getElementById('es-saldo-actual').innerHTML = '<span style="color:' + netoColor + ';">$' + neto.toLocaleString('es-AR') + '</span>';
+
+  var natural = Number(cv.saldoNetoSinAjuste)||0;
+  var natColor = natural > 0 ? '#6de097' : (natural < 0 ? 'var(--red)' : 'var(--muted)');
+  var natSign = natural > 0 ? '+' : '';
+  document.getElementById('es-saldo-natural').innerHTML = '<span style="color:' + natColor + ';">' + natSign + '$' + Math.abs(natural).toLocaleString('es-AR') + '</span>';
+
   var aj = Number(f.ajusteSaldo)||0;
   var ajColor = aj > 0 ? '#6de097' : (aj < 0 ? 'var(--red)' : 'var(--muted)');
   var ajSign = aj > 0 ? '+' : '';
   document.getElementById('es-ajuste-actual').innerHTML = '<span style="color:' + ajColor + ';">' + ajSign + '$' + Math.abs(aj).toLocaleString('es-AR') + '</span>';
-  document.getElementById('es-nuevo-ajuste').value = aj || '';
+
+  var neto = Number(cv.saldoNeto)||0;
+  var netoColor = neto > 0 ? '#6de097' : (neto < 0 ? 'var(--red)' : 'var(--muted)');
+  var netoSign = neto > 0 ? '+' : '';
+  document.getElementById('es-saldo-actual').innerHTML = '<span style="color:' + netoColor + ';">' + netoSign + '$' + Math.abs(neto).toLocaleString('es-AR') + '</span>';
+
+  document.getElementById('es-saldo-final').value = neto || '';
   document.getElementById('es-motivo').value = '';
+  document.getElementById('es-preview-ajuste').innerHTML = '';
   document.getElementById('modalEditSaldo').classList.add('open');
+  previsualizarAjusteSaldo();
 }
-function cerrarModalEditSaldo(){ document.getElementById('modalEditSaldo').classList.remove('open'); }
+function cerrarModalEditSaldo(){ document.getElementById('modalEditSaldo').classList.remove('open'); _esModalCtx = null; }
+
+function previsualizarAjusteSaldo() {
+  if (!_esModalCtx) return;
+  var raw = document.getElementById('es-saldo-final').value;
+  var prev = document.getElementById('es-preview-ajuste');
+  if (!prev) return;
+  if (raw === '' || raw === null) { prev.innerHTML = ''; return; }
+  var deseado = Number(raw);
+  if (!isFinite(deseado)) { prev.innerHTML = '<span style="color:var(--red);">Monto invalido</span>'; return; }
+  var natural = Number(_esModalCtx.cv.saldoNetoSinAjuste)||0;
+  var ajusteActual = Number(_esModalCtx.cv.ajusteSaldo)||0;
+  var ajusteNuevo = Math.round((deseado - natural) * 100) / 100;
+  var delta = ajusteNuevo - ajusteActual;
+
+  var ajColor = ajusteNuevo > 0 ? '#6de097' : (ajusteNuevo < 0 ? 'var(--red)' : 'var(--muted)');
+  var ajSign = ajusteNuevo > 0 ? '+' : '';
+  var deltaColor = delta > 0 ? '#6de097' : (delta < 0 ? 'var(--red)' : 'var(--muted)');
+  var deltaSign = delta > 0 ? '+' : '';
+  var html = '<div>Nuevo ajuste a guardar: <span style="color:' + ajColor + ';font-weight:700;">' + ajSign + '$' + Math.abs(ajusteNuevo).toLocaleString('es-AR') + '</span></div>';
+  if (Math.abs(delta) > 0.5) {
+    html += '<div style="margin-top:2px;">Delta vs anterior: <span style="color:' + deltaColor + ';font-weight:700;">' + deltaSign + '$' + Math.abs(delta).toLocaleString('es-AR') + '</span></div>';
+  } else {
+    html += '<div style="margin-top:2px;color:var(--muted);">El ajuste no cambia respecto al actual.</div>';
+  }
+  prev.innerHTML = html;
+}
 
 function guardarAjusteSaldo() {
   if(!itemSel || !itemSel.dni) return alert('Abri primero la ficha de un socio');
   var f = DB.jugadores[itemSel.arrIdx]; if(!f) return;
   var dni = String(itemSel.dni);
-  var raw = document.getElementById('es-nuevo-ajuste').value;
-  if (raw === '' || raw === null) return alert('Ingresa un monto (0 para borrar el ajuste)');
-  var nuevo = Number(raw);
-  if (!isFinite(nuevo)) return alert('Monto invalido');
-  nuevo = Math.round(nuevo * 100) / 100;
+  var raw = document.getElementById('es-saldo-final').value;
+  if (raw === '' || raw === null) return alert('Ingresa el saldo final deseado (0 para que quede al dia)');
+  var deseado = Number(raw);
+  if (!isFinite(deseado)) return alert('Monto invalido');
+  var cv = estadoCuotaV2(f);
+  var natural = Number(cv.saldoNetoSinAjuste) || 0;
+  var nuevo = Math.round((deseado - natural) * 100) / 100;
   var motivo = (document.getElementById('es-motivo').value||'').trim();
   if (!motivo) return alert('El motivo es obligatorio');
   var anterior = Number(f.ajusteSaldo) || 0;
-  if (nuevo === anterior) return alert('El ajuste no cambio. Cancelá o ingresá un valor distinto.');
+  if (Math.abs(nuevo - anterior) < 0.5) return alert('El ajuste no cambio. Cancelá o ingresá un saldo distinto.');
   var delta = nuevo - anterior;
   var usuario = (window.ADMIN_USER || (typeof localStorage!=='undefined' && localStorage.getItem('admin_user')) || 'admin');
   var nombreSocio = (f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'');
