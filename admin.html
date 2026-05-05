@@ -1609,7 +1609,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.27-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.28-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3411,7 +3411,8 @@ function calcularEstadoTiempoReal(f) {
   var planMonto = inscVigentes.reduce(function(s,i){
     var m = Number(i.monto) || 0;
     var d = Number(i.descuentoHno) || 0;
-    return s + (d > 0 && d < m ? m - d : m);
+    var esCS = /cuota\s*social/i.test(i.plan || '');
+    return s + (!esCS && d > 0 && d < m ? m - d : m);
   }, 0);
   var planNom = inscVigentes.map(function(i){ return i.plan; }).join(' + ');
 
@@ -3423,7 +3424,9 @@ function calcularEstadoTiempoReal(f) {
   inscTodas.forEach(function(insc) {
     var pm = Number(insc.monto) || 0;
     var descHno = Number(insc.descuentoHno) || 0;
-    if(descHno > 0 && descHno < pm) pm = pm - descHno;
+    // Cuota Social NUNCA recibe descuento de hermanos: queda fija en su monto base.
+    var esCuotaSocial = /cuota\s*social/i.test(insc.plan || '');
+    if (!esCuotaSocial && descHno > 0 && descHno < pm) pm = pm - descHno;
     if (!pm) return;
 
     var mD = insc.desde ? normFecha(insc.desde).substring(0,7) : '';
@@ -4281,15 +4284,24 @@ function confirmarPago() {
       if (pagos.length === 1) {
         pagos[0].monto = _montoOverride;
       } else {
-        var _factor = _montoOverride / _montoSug;
-        // Escalar todos menos el ultimo, y al ultimo asignarle la diferencia
-        // para que la suma sea EXACTA al override (sin error de redondeo).
-        var acumulado = 0;
-        for (var _i = 0; _i < pagos.length - 1; _i++) {
-          pagos[_i].monto = Math.round(pagos[_i].monto * _factor);
-          acumulado += pagos[_i].monto;
+        // Cuota Social NUNCA se ajusta: la diff cae en el pago no-CS mas grande.
+        var pendiente = _montoSug - _montoOverride;
+        var idxsAjustables = pagos.map(function(p, i){ return i; })
+          .filter(function(i){ return !/cuota\s*social/i.test(pagos[i].plan); })
+          .sort(function(a, b){ return pagos[b].monto - pagos[a].monto; });
+        var idxsAjuste = idxsAjustables.length > 0
+          ? idxsAjustables
+          : pagos.map(function(_, i){ return i; }).sort(function(a, b){ return pagos[b].monto - pagos[a].monto; });
+        if (pendiente > 0) {
+          for (var _k = 0; _k < idxsAjuste.length && pendiente > 0.5; _k++) {
+            var ix = idxsAjuste[_k];
+            var resto = Math.min(pendiente, pagos[ix].monto);
+            pagos[ix].monto -= resto;
+            pendiente -= resto;
+          }
+        } else {
+          pagos[idxsAjuste[0]].monto += (-pendiente);
         }
-        pagos[pagos.length - 1].monto = Math.max(0, _montoOverride - acumulado);
       }
     }
   }
