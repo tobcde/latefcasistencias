@@ -1604,7 +1604,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.24-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.25-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3597,9 +3597,67 @@ window.diagnosticoSocio = function(query) {
     }));
     var cv = calcularEstadoTiempoReal(f);
     console.log('%cEstado final:', 'font-weight:bold;color:var(--secondary)', cv.estado);
-    console.log('Deuda:', cv.deuda, '/ A favor:', cv.saldoAFavor);
+    console.log('Deuda:', cv.deuda, '/ A favor:', cv.saldoAFavor, '/ Ajuste manual:', cv.ajusteSaldo);
     console.log('Detalle por inscripcion:');
     console.table(cv.detalle);
+
+    var hoy = new Date();
+    var mesHoy = hoy.getFullYear() + '-' + String(hoy.getMonth()+1).padStart(2,'0');
+    inscs.forEach(function(insc){
+      var pm = Number(insc.monto)||0;
+      var dh = Number(insc.descuentoHno)||0;
+      if (dh > 0 && dh < pm) pm = pm - dh;
+      if (!pm) return;
+      var mD = insc.desde ? normFecha(insc.desde).substring(0,7) : '';
+      if (!mD || mD > mesHoy) return;
+      var mHRaw = insc.hasta ? normFecha(insc.hasta).substring(0,7) : '';
+      var mH = mHRaw && mHRaw < mesHoy ? mHRaw : mesHoy;
+      var pagadoPorMes = {};
+      var fueraRango = [];
+      cuotas.forEach(function(row){
+        if ((row[2]||'').indexOf('Historico') === 0) return;
+        if (row[2] !== insc.plan) return;
+        var monto = Number(row[6])||0;
+        if (monto <= 0) return;
+        var pD = normFecha((row[3]||'').toString().trim()).substring(0,7);
+        var pH = normFecha((row[4]||'').toString().trim()).substring(0,7);
+        if (!pD || !pH) {
+          var fp = normFecha((row[5]||'').toString().trim()).substring(0,7);
+          if (!pD) pD = fp;
+          if (!pH) pH = fp;
+        }
+        if (!pD || !pH) { fueraRango.push({mes:'(sin periodo)', monto:monto, fsId:row._fsId}); return; }
+        if (pD > pH) { var tmp=pD; pD=pH; pH=tmp; }
+        var nMeses = 1, it = pD;
+        while (it < pH) { nMeses++; it = _mesSiguiente(it); }
+        var montoPorMes = monto / nMeses;
+        it = pD;
+        while (true) {
+          if (it >= mD && it <= mH) {
+            pagadoPorMes[it] = (pagadoPorMes[it]||0) + montoPorMes;
+          } else {
+            fueraRango.push({mes:it, monto:montoPorMes, fsId:row._fsId});
+          }
+          if (it === pH) break;
+          it = _mesSiguiente(it);
+        }
+      });
+      var mesesReq = [];
+      var iter = mD;
+      while (true) {
+        var p = pagadoPorMes[iter] || 0;
+        mesesReq.push({mes:iter, requerido:pm, pagado:Math.round(p*100)/100, diferencia:Math.round((p-pm)*100)/100, estado: p >= pm-0.5 ? 'ok' : (p > 0 ? 'parcial' : 'debe')});
+        if (iter === mH) break;
+        iter = _mesSiguiente(iter);
+      }
+      console.log('%cInsc "' + insc.plan + '" — desde ' + mD + ' hasta ' + mH + ' (' + mesesReq.length + ' meses × $' + pm + '):', 'color:#6de097;font-weight:bold;');
+      console.table(mesesReq);
+      if (fueraRango.length) {
+        console.log('  Pagos a meses fuera del rango (van a saldo a favor):');
+        console.table(fueraRango);
+      }
+    });
+
     console.groupEnd();
   });
 };
