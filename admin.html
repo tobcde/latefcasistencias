@@ -1609,7 +1609,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.26-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.27-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3531,6 +3531,15 @@ function calcularEstadoTiempoReal(f) {
     }
   }
 
+  // Compensar favor contra deuda: si el socio tiene favor en una insc y deuda
+  // en otra, el favor cancela la deuda antes de mostrar.
+  var compensacion = Math.min(deudaTotal, favorTotal);
+  if (compensacion > 0) {
+    deudaTotal -= compensacion;
+    favorTotal -= compensacion;
+    if (deudaTotal === 0 && estadoPeor !== 'none') estadoPeor = 'ok';
+  }
+
   // Capturar estado natural (sin ajuste manual) para que el modal Edit Saldo
   // pueda mostrar "saldo deseado" correctamente.
   var deudaSinAjuste = deudaTotal;
@@ -5322,20 +5331,17 @@ function abrirModalEditSaldo() {
   document.getElementById('es-nombre').innerText = (f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'');
   document.getElementById('es-dni-lbl').innerText = 'DNI ' + itemSel.dni;
 
+  function _fmtSaldo(v){ var s = v > 0 ? '+' : (v < 0 ? '-' : ''); return s + '$' + Math.abs(v).toLocaleString('es-AR'); }
+  function _colorSaldo(v){ return v > 0 ? '#6de097' : (v < 0 ? 'var(--red)' : 'var(--muted)'); }
+
   var natural = Number(cv.saldoNetoSinAjuste)||0;
-  var natColor = natural > 0 ? '#6de097' : (natural < 0 ? 'var(--red)' : 'var(--muted)');
-  var natSign = natural > 0 ? '+' : '';
-  document.getElementById('es-saldo-natural').innerHTML = '<span style="color:' + natColor + ';">' + natSign + '$' + Math.abs(natural).toLocaleString('es-AR') + '</span>';
+  document.getElementById('es-saldo-natural').innerHTML = '<span style="color:' + _colorSaldo(natural) + ';">' + _fmtSaldo(natural) + '</span>';
 
   var aj = Number(f.ajusteSaldo)||0;
-  var ajColor = aj > 0 ? '#6de097' : (aj < 0 ? 'var(--red)' : 'var(--muted)');
-  var ajSign = aj > 0 ? '+' : '';
-  document.getElementById('es-ajuste-actual').innerHTML = '<span style="color:' + ajColor + ';">' + ajSign + '$' + Math.abs(aj).toLocaleString('es-AR') + '</span>';
+  document.getElementById('es-ajuste-actual').innerHTML = '<span style="color:' + _colorSaldo(aj) + ';">' + _fmtSaldo(aj) + '</span>';
 
   var neto = Number(cv.saldoNeto)||0;
-  var netoColor = neto > 0 ? '#6de097' : (neto < 0 ? 'var(--red)' : 'var(--muted)');
-  var netoSign = neto > 0 ? '+' : '';
-  document.getElementById('es-saldo-actual').innerHTML = '<span style="color:' + netoColor + ';">' + netoSign + '$' + Math.abs(neto).toLocaleString('es-AR') + '</span>';
+  document.getElementById('es-saldo-actual').innerHTML = '<span style="color:' + _colorSaldo(neto) + ';">' + _fmtSaldo(neto) + '</span>';
 
   document.getElementById('es-saldo-final').value = neto || '';
   document.getElementById('es-motivo').value = '';
