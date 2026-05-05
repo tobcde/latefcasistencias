@@ -858,6 +858,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
         <option value="eliminados">Eliminados</option>
         <option value="cit_matriz">Matriz de citaciones</option>
         <option value="ajustes_saldo">Ajustes de saldo</option>
+        <option value="semaforo_matriz">Matriz de semáforo</option>
       </select>
       <div class="filter-group" id="r-filter-mes">
         <label class="filter-label">Mes</label><select id="rMes" class="filter-select" onchange="renderReporte()"></select></div>
@@ -1592,7 +1593,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.22-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.23-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -6799,10 +6800,10 @@ function renderReporte() {
   var _re = document.getElementById('r-empty'); if(_re) _re.style.display = 'none';
   var _sd = function(id,v){ var e = document.getElementById(id); if(e) e.style.display = v; };
   _sd('r-filter-mes', tipo === 'tipo_pago' ? '' : 'none');
-  _sd('r-filter-desde', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz','auditoria','ajustes_saldo'].includes(tipo) ? '' : 'none');
-  _sd('r-filter-hasta', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz','auditoria','ajustes_saldo'].includes(tipo) ? '' : 'none');
+  _sd('r-filter-desde', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz','auditoria','ajustes_saldo','semaforo_matriz'].includes(tipo) ? '' : 'none');
+  _sd('r-filter-hasta', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz','auditoria','ajustes_saldo','semaforo_matriz'].includes(tipo) ? '' : 'none');
   _sd('r-filter-caja-fecha', tipo === 'caja_dia' ? '' : 'none');
-  _sd('r-filter-cat', ['deudores','al_dia','jugadores','asist_matriz','asistencia','asist_por_dia','ranking_asist','pagos_mes','caja_dia','auditoria','cit_matriz'].includes(tipo) ? '' : 'none');
+  _sd('r-filter-cat', ['deudores','al_dia','jugadores','asist_matriz','asistencia','asist_por_dia','ranking_asist','pagos_mes','caja_dia','auditoria','cit_matriz','semaforo_matriz'].includes(tipo) ? '' : 'none');
   _sd('r-filter-plan', ['pagos_mes','deudores','al_dia','tipo_pago','caja_dia','jugadores','auditoria'].includes(tipo) ? '' : 'none');
   _sd('r-filter-socio', ['auditoria','ajustes_saldo'].includes(tipo) ? '' : 'none');
   // Default rDesde: siempre el 1° del mes actual (no auto-amplificar)
@@ -6821,6 +6822,7 @@ function renderReporte() {
   else if(tipo === 'eliminados') rptEliminados();
   else if(tipo === 'cit_matriz') rptCitacionesMatriz();
   else if(tipo === 'ajustes_saldo') rptAjustesSaldo();
+  else if(tipo === 'semaforo_matriz') rptSemaforoMatriz();
 }
 
 // ── Pills + charts ───────────────────────────────────────────────
@@ -6838,7 +6840,8 @@ var R_CAT_MAP = {
     {v:'asistencia',    i:'\u2705',       l:'Asistencia'},
     {v:'asist_matriz',  i:'\uD83D\uDD22', l:'Matriz'},
     {v:'asist_por_dia', i:'\uD83D\uDCC5', l:'Por d\u00EDa'},
-    {v:'ranking_asist', i:'\uD83C\uDFC6', l:'Ranking'}
+    {v:'ranking_asist', i:'\uD83C\uDFC6', l:'Ranking'},
+    {v:'semaforo_matriz', i:'\uD83D\uDEA6', l:'Sem\u00E1foro emociones'}
   ],
   socios: [
     {v:'jugadores',  i:'\uD83D\uDCCB', l:'Listado completo'},
@@ -7599,6 +7602,136 @@ function rptCitacionesMatriz() {
   });
 }
 
+// ── Matriz de semaforo de emociones ──────────────────────────────
+function rptSemaforoMatriz() {
+  var rango = getRangoFechas();
+  var cat = document.getElementById('rCat').value;
+
+  var asistFiltradas = asistencias.filter(function(r){
+    return enRango(r[0], rango.desde, rango.hasta);
+  });
+
+  var fechaSet = {};
+  asistFiltradas.forEach(function(r){ if (r[5] === true) fechaSet[r[0]||''] = true; });
+  var fechas = Object.keys(fechaSet).filter(Boolean).sort();
+
+  if (!fechas.length) {
+    setCards([{val:0, lbl:'Sin asistencias presentes en el rango'}]);
+    var contEmpty = document.getElementById('r-tabla') || document.getElementById('rTabla');
+    if (contEmpty) contEmpty.innerHTML = '<p style="color:var(--muted);padding:20px;">Sin datos en el rango.</p>';
+    return;
+  }
+
+  var idx = {};
+  asistFiltradas.forEach(function(r){
+    var dni  = (r[3]||'').toString();
+    var fecha= r[0]||'';
+    var pres = r[5] === true;
+    var sem  = (r[6]||'').toString().trim().toLowerCase();
+    if (!pres) return;
+    if (!idx[dni]) idx[dni] = {};
+    if (sem === 'verde' || sem === 'amarillo' || sem === 'rojo') idx[dni][fecha] = sem;
+    else idx[dni][fecha] = 'presente_sin';
+  });
+
+  var socios = DB.jugadores.slice(1).filter(function(f){
+    var a = f[COL.ACTIVO]; if(!(a===true||String(a).toLowerCase()==='si')) return false;
+    if(cat && String(f[COL.CATEGORIA_APP]||'').trim() !== String(cat).trim()) return false;
+    var dni = (f[COL.DNI]||f[COL.TARJETA]||'').toString();
+    return !!idx[dni];
+  }).sort(function(a,b){
+    return (a[COL.APELLIDO]||'').localeCompare(b[COL.APELLIDO]||'');
+  });
+
+  if (!socios.length) {
+    setCards([{val:0, lbl:'Sin socios con registros'}]);
+    document.getElementById('r-tabla').innerHTML = '<p style="color:var(--muted);padding:20px;">Sin socios con asistencias presentes en el rango seleccionado.</p>';
+    return;
+  }
+
+  var totPorFecha = {};
+  fechas.forEach(function(f){ totPorFecha[f] = {verde:0, amarillo:0, rojo:0, sinSem:0}; });
+  socios.forEach(function(s){
+    var dni = (s[COL.DNI]||s[COL.TARJETA]||'').toString();
+    fechas.forEach(function(f){
+      var v = idx[dni] && idx[dni][f];
+      if (v === 'verde') totPorFecha[f].verde++;
+      else if (v === 'amarillo') totPorFecha[f].amarillo++;
+      else if (v === 'rojo') totPorFecha[f].rojo++;
+      else if (v === 'presente_sin') totPorFecha[f].sinSem++;
+    });
+  });
+
+  var statG = {verde:0, amarillo:0, rojo:0, sinSem:0};
+  fechas.forEach(function(f){
+    statG.verde    += totPorFecha[f].verde;
+    statG.amarillo += totPorFecha[f].amarillo;
+    statG.rojo     += totPorFecha[f].rojo;
+    statG.sinSem   += totPorFecha[f].sinSem;
+  });
+
+  var html = '<div class="mat-wrap"><table class="mat-table">';
+  html += '<thead><tr>';
+  html += '<th class="mat-nombre">Socio</th>';
+  fechas.forEach(function(f){
+    var partes = f.split('-');
+    var label = partes.length === 3 ? (partes[2] + '/' + partes[1]) : f;
+    html += '<th class="mat-fecha">' + label + '</th>';
+  });
+  html += '<th class="mat-total" title="Verdes">&#x1F7E2;</th>';
+  html += '<th class="mat-total" title="Amarillos">&#x1F7E1;</th>';
+  html += '<th class="mat-total" title="Rojos">&#x1F534;</th>';
+  html += '</tr></thead>';
+
+  html += '<tbody>';
+  socios.forEach(function(s){
+    var dni = (s[COL.DNI]||s[COL.TARJETA]||'').toString();
+    var nombre = (s[COL.APELLIDO]||'') + ', ' + (s[COL.NOMBRE]||'');
+    var nVerde=0, nAmarillo=0, nRojo=0;
+    html += '<tr>';
+    html += '<td class="mat-nombre">' + esc(nombre) + '</td>';
+    fechas.forEach(function(f){
+      var v = idx[dni] && idx[dni][f];
+      if (v === 'verde')         { nVerde++;    html += '<td class="mat-cell-pres" title="Verde">&#x1F7E2;</td>'; }
+      else if (v === 'amarillo') { nAmarillo++; html += '<td class="mat-cell-pres" title="Amarillo">&#x1F7E1;</td>'; }
+      else if (v === 'rojo')     { nRojo++;     html += '<td class="mat-cell-aus" title="Rojo">&#x1F534;</td>'; }
+      else if (v === 'presente_sin') { html += '<td class="mat-cell-na" title="Presente, sin semaforo">&#x2713;</td>'; }
+      else { html += '<td class="mat-cell-na" title="Ausente o sin registro">&middot;</td>'; }
+    });
+    html += '<td class="mat-cell-total" style="color:#22c55e;">' + nVerde + '</td>';
+    html += '<td class="mat-cell-total" style="color:#eab308;">' + nAmarillo + '</td>';
+    html += '<td class="mat-cell-total" style="color:#ef4444;">' + nRojo + '</td>';
+    html += '</tr>';
+  });
+  html += '</tbody>';
+
+  html += '<tfoot>';
+  ['verde','amarillo','rojo'].forEach(function(color){
+    var emoji = color === 'verde' ? '&#x1F7E2;' : color === 'amarillo' ? '&#x1F7E1;' : '&#x1F534;';
+    html += '<tr>';
+    html += '<td style="text-align:left;padding:4px 8px;font-weight:700;">' + emoji + '</td>';
+    fechas.forEach(function(f){
+      var v = totPorFecha[f][color];
+      html += '<td style="text-align:center;font-size:11px;">' + (v || '') + '</td>';
+    });
+    html += '<td colspan="3"></td></tr>';
+  });
+  html += '</tfoot>';
+
+  html += '</table></div>';
+
+  setCards([
+    {val: socios.length,  lbl: 'Socios'},
+    {val: statG.verde,    lbl: '🟢 Verde',    color:'#22c55e'},
+    {val: statG.amarillo, lbl: '🟡 Amarillo', color:'#eab308'},
+    {val: statG.rojo,     lbl: '🔴 Rojo',     color:'#ef4444'}
+  ]);
+
+  var _th = document.getElementById('r-thead'); if(_th) _th.innerHTML = '';
+  var _tb = document.getElementById('r-tbody'); if(_tb) _tb.innerHTML = '';
+  (document.getElementById('r-tabla') || document.getElementById('rTabla')).innerHTML = html;
+}
+
 function rptRankingAsist() {
   var rango = getRangoFechas();
   var cat = document.getElementById('rCat').value;
@@ -7993,7 +8126,7 @@ function lazyCargarAsistencias(cb, mesesAtras) {
   db.collection('asistencias').where('fecha', '>=', corte).get()
     .then(function(snap) {
       asistencias = [];
-      snap.forEach(function(doc){ var d=doc.data(); asistencias.push([d.fecha||'',d.turnoId||'',d.label||'',d.dni||'',d.nombre||'',d.presente===true]); });
+      snap.forEach(function(doc){ var d=doc.data(); asistencias.push([d.fecha||'',d.turnoId||'',d.label||'',d.dni||'',d.nombre||'',d.presente===true,d.semaforo||'']); });
       _contarLecturas(snap.size);
       _cargado[cacheKey] = true;
       _cargado.asistencias = true;
