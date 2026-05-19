@@ -298,6 +298,18 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);over
         <button style="flex:1;background:var(--red-dim);border:1px solid var(--red-border);color:var(--red);border-radius:8px;padding:8px;font-family:'Barlow Condensed',sans-serif;font-size:13px;font-weight:700;cursor:pointer;" onclick="marcarTodos(false)">&#x2717; Todos ausentes</button>
       </div>
       <div id="lista-alumnos" style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;"></div>
+      <div id="invitados-section" style="margin-top:14px;">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+          <div style="background:rgba(201,162,39,.12);padding:10px 16px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+            <div>
+              <div style="font-family:'Barlow Condensed',sans-serif;font-size:14px;font-weight:700;color:var(--secondary);text-transform:uppercase;letter-spacing:1px;">&#x1F465; Invitados / Sin alta</div>
+              <div style="font-size:11px;color:var(--muted);">Alumnos que todavía no están registrados en la app</div>
+            </div>
+            <button onclick="agregarInvitado()" style="background:var(--secondary);border:none;color:#0d130d;font-weight:800;padding:8px 14px;border-radius:8px;font-size:12px;cursor:pointer;font-family:'Barlow Condensed',sans-serif;letter-spacing:.5px;">+ AGREGAR</button>
+          </div>
+          <div id="invitados-lista"></div>
+        </div>
+      </div>
       <button class="btn-guardar" id="btn-guardar" onclick="guardarAsistencia()">&#x1F4BE; GUARDAR ASISTENCIA</button>
     </div>
   </div>
@@ -416,7 +428,7 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);over
 </div>
 
 <div id="toast"></div>
-<div id="vbadge">v2.3-late</div>
+<div id="vbadge">v2.4-late</div>
 
 <!-- FIREBASE SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -463,6 +475,8 @@ var DB = {
 };
 var asistencias  = [];  // registros últimos 2 meses [{fecha,turnoId,label,dni,nombre,presente}]
 var asistActual    = {};  // {dni: true/false}
+var invitadosActual = [];  // [{tempId, nombre, presente, semaforo}] — alumnos sin alta cargados a mano
+var _invSeq = 0;
 var semaforoActual = {};  // {dni: 'verde'|'amarillo'|'rojo'|null}
 var turnoActual  = null;
 
@@ -1204,7 +1218,7 @@ function ocultarLista() {
   document.getElementById('stats-bar').style.display='none';
   document.getElementById('turno-info').classList.remove('visible');
   document.getElementById('asist-empty').style.display='block';
-  turnoActual=null; asistActual={};
+  turnoActual=null; asistActual={}; invitadosActual=[];
 }
 
 function cargarLista(h, turnoId) {
@@ -1224,13 +1238,22 @@ function cargarLista(h, turnoId) {
     return mP || mS;
   });
 
-  // Cargar asistencias previas
-  asistActual = {}; semaforoActual = {}; var tieneRegistro = false;
+  // Cargar asistencias previas — separar invitados (dni con prefijo INV_)
+  asistActual = {}; semaforoActual = {}; invitadosActual = []; var tieneRegistro = false;
   asistencias.forEach(function(r) {
-    if (r.turnoId === turnoId) {
-      tieneRegistro = true;
-      asistActual[r.dni.toString()] = r.presente === true;
-      if (r.semaforo) semaforoActual[r.dni.toString()] = r.semaforo;
+    if (r.turnoId !== turnoId) return;
+    tieneRegistro = true;
+    var _d = (r.dni||'').toString();
+    if (_d.indexOf('INV_') === 0) {
+      invitadosActual.push({
+        tempId: _d,
+        nombre: r.nombre || '',
+        presente: r.presente === true,
+        semaforo: (r.semaforo || '').toString()
+      });
+    } else {
+      asistActual[_d] = r.presente === true;
+      if (r.semaforo) semaforoActual[_d] = r.semaforo;
     }
   });
   if (!tieneRegistro) {
@@ -1247,6 +1270,7 @@ function cargarLista(h, turnoId) {
   infoEl.classList.add('visible');
 
   renderLista(jug, turnoId);
+  renderInvitados();
   document.getElementById('asist-empty').style.display='none';
   document.getElementById('lista-container').style.display='block';
   document.getElementById('stats-bar').style.display='grid';
@@ -1359,6 +1383,74 @@ function actualizarStats(total) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// INVITADOS — alumnos que todavia no estan dados de alta en la app
+// ══════════════════════════════════════════════════════════════════
+function agregarInvitado() {
+  invitadosActual.push({
+    tempId: 'INV_' + Date.now() + '_' + (++_invSeq),
+    nombre: '', presente: true, semaforo: ''
+  });
+  renderInvitados();
+  // Focus en el ultimo input recien creado
+  setTimeout(function(){
+    var inputs = document.querySelectorAll('#invitados-lista input[type="text"]');
+    if (inputs.length) inputs[inputs.length-1].focus();
+  }, 50);
+}
+
+function eliminarInvitado(tempId) {
+  invitadosActual = invitadosActual.filter(function(i){ return i.tempId !== tempId; });
+  renderInvitados();
+}
+
+function actualizarNombreInvitado(tempId, valor) {
+  var inv = invitadosActual.find(function(i){ return i.tempId === tempId; });
+  if (inv) inv.nombre = valor;
+}
+
+function toggleInvitado(tempId) {
+  var inv = invitadosActual.find(function(i){ return i.tempId === tempId; });
+  if (!inv) return;
+  inv.presente = !inv.presente;
+  if (!inv.presente) inv.semaforo = '';
+  renderInvitados();
+}
+
+function toggleSemaforoInvitado(tempId, color) {
+  var inv = invitadosActual.find(function(i){ return i.tempId === tempId; });
+  if (!inv || !inv.presente) return;
+  inv.semaforo = inv.semaforo === color ? '' : color;
+  renderInvitados();
+}
+
+function renderInvitados() {
+  var lst = document.getElementById('invitados-lista');
+  if (!lst) return;
+  if (!invitadosActual.length) {
+    lst.innerHTML = '<div style="padding:14px 16px;color:var(--muted);font-size:12px;text-align:center;">Sin invitados. Tocá <b>+ AGREGAR</b> para sumar alguien.</div>';
+    return;
+  }
+  lst.innerHTML = invitadosActual.map(function(inv) {
+    var pres = inv.presente;
+    var nomEsc = (inv.nombre||'').replace(/"/g,'&quot;');
+    var semHtml = '<div class="sem-group ' + (pres?'':'disabled') + '">'
+      + '<button class="sem-btn verde'    + (inv.semaforo==='verde'    ? ' activo':'') + '" onclick="toggleSemaforoInvitado(\''+inv.tempId+'\',\'verde\')"    title="Bien"></button>'
+      + '<button class="sem-btn amarillo' + (inv.semaforo==='amarillo' ? ' activo':'') + '" onclick="toggleSemaforoInvitado(\''+inv.tempId+'\',\'amarillo\')" title="Regular"></button>'
+      + '<button class="sem-btn rojo'     + (inv.semaforo==='rojo'     ? ' activo':'') + '" onclick="toggleSemaforoInvitado(\''+inv.tempId+'\',\'rojo\')"     title="Mal"></button>'
+      + '</div>';
+    return '<div class="alumno-row" style="border-top:1px solid var(--border);">'
+      + '<div style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;">'
+      + '<div class="alumno-foto-ph" style="background:rgba(201,162,39,.18);color:var(--secondary);font-size:18px;">+</div>'
+      + '<input type="text" placeholder="Nombre y apellido del invitado" value="' + nomEsc + '" oninput="actualizarNombreInvitado(\''+inv.tempId+'\', this.value)" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:13px;width:100%;min-width:0;">'
+      + '</div>'
+      + semHtml
+      + '<button class="toggle-btn '+(pres?'presente':'ausente')+'" onclick="toggleInvitado(\''+inv.tempId+'\')"></button>'
+      + '<button onclick="eliminarInvitado(\''+inv.tempId+'\')" style="background:transparent;border:none;color:var(--muted);font-size:20px;cursor:pointer;margin-left:6px;padding:0 4px;" title="Quitar">&times;</button>'
+      + '</div>';
+  }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════════
 // GUARDAR ASISTENCIA — Firestore batch
 // ══════════════════════════════════════════════════════════════════
 function guardarAsistencia() {
@@ -1385,6 +1477,23 @@ function guardarAsistencia() {
     };
     if (pres && semaforoActual[dni]) rec.semaforo = semaforoActual[dni];
     return rec;
+  });
+
+  // Agregar invitados con nombre no vacio
+  invitadosActual.forEach(function(inv) {
+    var nom = (inv.nombre||'').trim();
+    if (!nom) return; // ignorar invitados sin nombre
+    var rec = {
+      fecha:    fecha,
+      turnoId:  turnoId,
+      label:    turnoLabel,
+      dni:      inv.tempId, // sintetico (prefijo INV_)
+      nombre:   nom,
+      presente: inv.presente !== false,
+      invitado: true
+    };
+    if (rec.presente && inv.semaforo) rec.semaforo = inv.semaforo;
+    registros.push(rec);
   });
 
   // Batch: borrar registros viejos del turno + insertar nuevos
