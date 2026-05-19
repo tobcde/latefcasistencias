@@ -1739,7 +1739,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.45-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.46-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -8047,10 +8047,12 @@ function rptAsistencia() {
   var rango = getRangoFechas();
   var cat = document.getElementById('rCat').value;
   var stats = {};
+  var nombreInv = {}; // dni sintetico -> nombre del invitado (para mostrar en filas)
   asistencias.filter(function(r){ return enRango(r[0], rango.desde, rango.hasta); }).forEach(function(r){
-    var dni = r[3]; if(!stats[dni]) stats[dni] = {total:0, pres:0};
+    var dni = (r[3]||'').toString(); if(!stats[dni]) stats[dni] = {total:0, pres:0};
     stats[dni].total++;
     if(r[5]===true||String(r[5]).toLowerCase()==='true') stats[dni].pres++;
+    if (dni.indexOf('INV_') === 0 && !nombreInv[dni]) nombreInv[dni] = r[4]||'(sin nombre)';
   });
   var rows = [];
   DB.jugadores.slice(1).filter(function(f){ var a = f[COL.ACTIVO]; return a===true||String(a).toLowerCase()==='si'; }).forEach(function(f){
@@ -8061,6 +8063,16 @@ function rptAsistencia() {
     var cl = pct>=75?'ok':pct>=50?'':'debe';
     rows.push('<tr>' + td((f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'')) + td(f[COL.CATEGORIA_APP]||'','muted') + td(s.pres,'muted') + td(s.total,'muted') + td(pct+'%',cl+' num') + '</tr>');
   });
+  // Invitados — solo si no hay filtro de categoria (los invitados no tienen cat)
+  if (!cat) {
+    Object.keys(nombreInv).forEach(function(dni){
+      var s = stats[dni]; if(!s) return;
+      var pct = Math.round(s.pres/s.total*100);
+      var cl = pct>=75?'ok':pct>=50?'':'debe';
+      var nom = '<span style="background:rgba(201,162,39,.22);color:var(--secondary);font-size:9px;padding:1px 6px;border-radius:8px;font-weight:800;margin-right:6px;">INV</span>' + nombreInv[dni];
+      rows.push('<tr>' + td(nom) + td('invitado','muted') + td(s.pres,'muted') + td(s.total,'muted') + td(pct+'%',cl+' num') + '</tr>');
+    });
+  }
   rows.sort(function(a,b){ return b.localeCompare(a); });
   setCards([{val:rows.length, lbl:T('socios') + ' con registros'}]);
   setTablaHeaders([T('socio'),T('grupo'),'Presentes','Total','%']);
@@ -8191,13 +8203,28 @@ function rptAsistenciaMatriz() {
     return (a[COL.APELLIDO]||'').localeCompare(b[COL.APELLIDO]||'');
   });
 
-  if(!socios.length){
+  // Invitados (DNI sintetico INV_*) — solo si no hay filtro de categoria
+  var invitados = [];
+  if (!cat) {
+    var invMap = {};
+    asistFiltradas.forEach(function(r){
+      var dni = (r[3]||'').toString();
+      if (dni.indexOf('INV_') !== 0) return;
+      if (!invMap[dni]) {
+        invMap[dni] = true;
+        invitados.push({ dni: dni, nombre: r[4] || '(sin nombre)' });
+      }
+    });
+    invitados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
+  }
+
+  if(!socios.length && !invitados.length){
     setCards([{val:0, lbl:'Sin socios con registros'}]);
     document.getElementById('rTabla').innerHTML = '<p style="color:var(--muted);padding:20px;">Sin socios con registros en el rango.</p>';
     return;
   }
 
-  // Calcular totales por fecha (presentes)
+  // Calcular totales por fecha (presentes) — sumar socios + invitados
   var totPorFecha = {};
   fechas.forEach(function(f){ totPorFecha[f] = {pres:0, total:0}; });
   socios.forEach(function(s){
@@ -8206,6 +8233,14 @@ function rptAsistenciaMatriz() {
       if(idx[dni] && idx[dni][f] !== undefined){
         totPorFecha[f].total++;
         if(idx[dni][f]) totPorFecha[f].pres++;
+      }
+    });
+  });
+  invitados.forEach(function(inv){
+    fechas.forEach(function(f){
+      if(idx[inv.dni] && idx[inv.dni][f] !== undefined){
+        totPorFecha[f].total++;
+        if(idx[inv.dni][f]) totPorFecha[f].pres++;
       }
     });
   });
@@ -8237,6 +8272,34 @@ function rptAsistenciaMatriz() {
 
     html += '<tr>';
     html += '<td class="mat-nombre">' + nombre + '</td>';
+    fechas.forEach(function(f){
+      var val = idx[dni] ? idx[dni][f] : undefined;
+      var sem = semIdx[dni] ? semIdx[dni][f] : null;
+      if(val === true){
+        pres++; total++;
+        var emoji = sem === 'verde' ? '&nbsp;&#x1F7E2;' : sem === 'amarillo' ? '&nbsp;&#x1F7E1;' : sem === 'rojo' ? '&nbsp;&#x1F534;' : '';
+        var titleP = sem ? 'Presente ' + sem : 'Presente';
+        html += '<td class="mat-cell-pres" title="' + titleP + '">&#x2713;' + emoji + '</td>';
+      } else if(val === false){
+        total++;
+        html += '<td class="mat-cell-aus" title="Ausente">&#x2715;</td>';
+      } else {
+        html += '<td class="mat-cell-na">-</td>';
+      }
+    });
+    var pct = total > 0 ? Math.round(pres/total*100) : 0;
+    var cl  = pct>=75 ? 'ok' : pct>=50 ? '' : 'debe';
+    html += '<td class="mat-cell-total">' + pres + '</td>';
+    html += '<td class="mat-cell-total" style="color:var(--muted);">' + total + '</td>';
+    html += '<td class="mat-cell-total ' + cl + '">' + pct + '%</td>';
+    html += '</tr>';
+  });
+  // Filas de invitados (badge INV)
+  invitados.forEach(function(inv){
+    var dni = inv.dni;
+    var pres = 0, total = 0;
+    html += '<tr>';
+    html += '<td class="mat-nombre"><span style="background:rgba(201,162,39,.22);color:var(--secondary);font-size:9px;padding:1px 6px;border-radius:8px;font-weight:800;margin-right:6px;">INV</span>' + inv.nombre + '</td>';
     fechas.forEach(function(f){
       var val = idx[dni] ? idx[dni][f] : undefined;
       var sem = semIdx[dni] ? semIdx[dni][f] : null;
@@ -8551,7 +8614,23 @@ function rptSemaforoMatriz() {
     return (a[COL.APELLIDO]||'').localeCompare(b[COL.APELLIDO]||'');
   });
 
-  if (!socios.length) {
+  // Invitados (DNI sintetico INV_*) — solo si no hay filtro de categoria
+  var invitados = [];
+  if (!cat) {
+    var invMap = {};
+    asistFiltradas.forEach(function(r){
+      var dni = (r[3]||'').toString();
+      if (dni.indexOf('INV_') !== 0) return;
+      if (r[5] !== true) return; // solo presentes (idx solo se llena para presentes)
+      if (!invMap[dni]) {
+        invMap[dni] = true;
+        invitados.push({ dni: dni, nombre: r[4] || '(sin nombre)' });
+      }
+    });
+    invitados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
+  }
+
+  if (!socios.length && !invitados.length) {
     setCards([{val:0, lbl:'Sin socios con registros'}]);
     document.getElementById('r-tabla').innerHTML = '<p style="color:var(--muted);padding:20px;">Sin socios con asistencias presentes en el rango seleccionado.</p>';
     return;
@@ -8563,6 +8642,15 @@ function rptSemaforoMatriz() {
     var dni = (s[COL.DNI]||s[COL.TARJETA]||'').toString();
     fechas.forEach(function(f){
       var v = idx[dni] && idx[dni][f];
+      if (v === 'verde') totPorFecha[f].verde++;
+      else if (v === 'amarillo') totPorFecha[f].amarillo++;
+      else if (v === 'rojo') totPorFecha[f].rojo++;
+      else if (v === 'presente_sin') totPorFecha[f].sinSem++;
+    });
+  });
+  invitados.forEach(function(inv){
+    fechas.forEach(function(f){
+      var v = idx[inv.dni] && idx[inv.dni][f];
       if (v === 'verde') totPorFecha[f].verde++;
       else if (v === 'amarillo') totPorFecha[f].amarillo++;
       else if (v === 'rojo') totPorFecha[f].rojo++;
@@ -8598,6 +8686,25 @@ function rptSemaforoMatriz() {
     var nVerde=0, nAmarillo=0, nRojo=0;
     html += '<tr>';
     html += '<td class="mat-nombre">' + esc(nombre) + '</td>';
+    fechas.forEach(function(f){
+      var v = idx[dni] && idx[dni][f];
+      if (v === 'verde')         { nVerde++;    html += '<td class="mat-cell-pres" title="Verde">&#x1F7E2;</td>'; }
+      else if (v === 'amarillo') { nAmarillo++; html += '<td class="mat-cell-pres" title="Amarillo">&#x1F7E1;</td>'; }
+      else if (v === 'rojo')     { nRojo++;     html += '<td class="mat-cell-aus" title="Rojo">&#x1F534;</td>'; }
+      else if (v === 'presente_sin') { html += '<td class="mat-cell-na" title="Presente, sin semaforo">&#x2713;</td>'; }
+      else { html += '<td class="mat-cell-na" title="Ausente o sin registro">&middot;</td>'; }
+    });
+    html += '<td class="mat-cell-total" style="color:#22c55e;">' + nVerde + '</td>';
+    html += '<td class="mat-cell-total" style="color:#eab308;">' + nAmarillo + '</td>';
+    html += '<td class="mat-cell-total" style="color:#ef4444;">' + nRojo + '</td>';
+    html += '</tr>';
+  });
+  // Filas de invitados (badge INV)
+  invitados.forEach(function(inv){
+    var dni = inv.dni;
+    var nVerde=0, nAmarillo=0, nRojo=0;
+    html += '<tr>';
+    html += '<td class="mat-nombre"><span style="background:rgba(201,162,39,.22);color:var(--secondary);font-size:9px;padding:1px 6px;border-radius:8px;font-weight:800;margin-right:6px;">INV</span>' + esc(inv.nombre) + '</td>';
     fechas.forEach(function(f){
       var v = idx[dni] && idx[dni][f];
       if (v === 'verde')         { nVerde++;    html += '<td class="mat-cell-pres" title="Verde">&#x1F7E2;</td>'; }
