@@ -1479,7 +1479,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 <div style="background:var(--surface2);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px;">
   <div style="font-family:'Barlow Condensed',sans-serif;font-size:16px;font-weight:800;color:var(--text);text-transform:uppercase;margin-bottom:12px;">Contenido</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;">
-    <a href="#ayuda-socios" onclick="event.preventDefault();document.getElementById('ayuda-socios').scrollIntoView({behavior:'smooth'})" style="color:var(--primary);text-decoration:none;" id="ayuda-idx-socios">1. Miembros</a>
+    <a href="#ayuda-socios" onclick="event.preventDefault();document.getElementById('ayuda-socios').scrollIntoView({behavior:'smooth'})" style="color:var(--primary);text-decoration:none;" id="ayuda-idx-socios">1. Socios</a>
     <a href="#ayuda-inscripciones" onclick="event.preventDefault();document.getElementById('ayuda-inscripciones').scrollIntoView({behavior:'smooth'})" style="color:var(--primary);text-decoration:none;">2. Inscripciones</a>
     <a href="#ayuda-cobros" onclick="event.preventDefault();document.getElementById('ayuda-cobros').scrollIntoView({behavior:'smooth'})" style="color:var(--primary);text-decoration:none;">3. Cobros y pagos</a>
     <a href="#ayuda-cuotas" onclick="event.preventDefault();document.getElementById('ayuda-cuotas').scrollIntoView({behavior:'smooth'})" style="color:var(--primary);text-decoration:none;">4. Cuotas</a>
@@ -1499,7 +1499,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
   <div class="ayuda-tabla">
     <div class="ayuda-fila-h"><div>Filtro</div><div>Descripción</div></div>
     <div class="ayuda-fila"><div>Nombre o documento</div><div>Busca por apellido, nombre o DNI</div></div>
-    <div class="ayuda-fila"><div>Categoría</div><div>Filtra por categoría asignada</div></div>
+    <div class="ayuda-fila"><div>Categoría</div><div>Filtra por categoría asignada — incluye tanto la primaria como la secundaria</div></div>
     <div class="ayuda-fila"><div>Género</div><div>Masculino / Femenino / Todos</div></div>
     <div class="ayuda-fila"><div>Estado</div><div>Activos / Inactivos / Todos</div></div>
     <div class="ayuda-fila"><div>Cuota</div><div>Al día / Debe / Parcial / Sin plan</div></div>
@@ -1561,6 +1561,9 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
     <div class="ayuda-fila"><div>Cobrador</div><div>Instructor que recibió el pago</div></div>
   </div>
 
+  <div class="ayuda-subtitulo">Pagar con saldo a favor</div>
+  <p class="ayuda-p">Si el socio tiene <strong>saldo a favor</strong> acumulado (por un pago de más o un ajuste previo), en el modal de pago aparece la opción <strong>"Pagar con saldo a favor"</strong>. Al tildarla, el cobro se descuenta del saldo disponible en vez de registrarse como dinero recibido: el método pasa a "Saldo a favor" y el monto se limita automáticamente al saldo disponible. El movimiento queda registrado en la auditoría del sistema.</p>
+
   <div class="ayuda-subtitulo">Comprobante por email</div>
   <p class="ayuda-p">Después de confirmar el pago, el sistema ofrece enviar un comprobante al email del socio. Requiere que el campo "Email para envío de comprobantes" esté configurado en INSTITUCIÓN.</p>
 
@@ -1597,7 +1600,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
     <li>Marcar los socios <strong>presentes</strong></li>
     <li>Click en <strong>GUARDAR ASISTENCIA</strong></li>
   </ol>
-  <div class="ayuda-nota">El sistema muestra solo los socios de la categoría correspondiente al turno seleccionado.</div>
+  <div class="ayuda-nota">El sistema muestra los socios cuya categoría —primaria o secundaria— corresponde al turno seleccionado.</div>
 
   <div class="ayuda-subtitulo">Porcentaje de asistencia</div>
   <p class="ayuda-p">En la ficha de cada socio se muestra el porcentaje de asistencia del mes actual. También disponible en el reporte de Asistencias del tab REPORTES.</p>
@@ -1642,17 +1645,41 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
   <div class="ayuda-titulo">&#x1F4CA; 7. Reportes</div>
   <p class="ayuda-p">Todos los reportes se generan desde datos en memoria — sin costo adicional de lecturas a la base de datos. Todos son exportables a CSV.</p>
 
+  <p class="ayuda-p">Los reportes están agrupados en 4 categorías: <strong>Pagos &amp; cuotas</strong>, <strong>Asistencias</strong>, <strong>Socios</strong> y <strong>Citaciones</strong>.</p>
+
+  <div class="ayuda-subtitulo">Pagos &amp; cuotas</div>
   <div class="ayuda-tabla">
     <div class="ayuda-fila-h"><div>Reporte</div><div>¿Qué muestra?</div></div>
-    <div class="ayuda-fila"><div>Deudores</div><div>Socios con estado DEBE o PARCIAL, con monto adeudado</div></div>
-    <div class="ayuda-fila"><div>Al día</div><div>Socios que tienen el período cubierto</div></div>
-    <div class="ayuda-fila"><div>Socios</div><div>Listado completo con datos de contacto</div></div>
     <div class="ayuda-fila"><div>Pagos del período</div><div>Todos los cobros realizados en el rango de fechas</div></div>
-    <div class="ayuda-fila"><div>Tipo de pago</div><div>Totales por método (efectivo, transferencia, etc.)</div></div>
+    <div class="ayuda-fila"><div>Deben cuota</div><div>Socios con estado DEBE o PARCIAL, con monto adeudado</div></div>
+    <div class="ayuda-fila"><div>Al día</div><div>Socios que tienen el período cubierto</div></div>
+    <div class="ayuda-fila"><div>Por tipo de pago</div><div>Totales por método (efectivo, transferencia, etc.)</div></div>
     <div class="ayuda-fila"><div>Caja del día</div><div>Cobros realizados en una fecha específica</div></div>
+    <div class="ayuda-fila"><div>Auditoría</div><div>Historial de ediciones y eliminaciones de pagos con motivo</div></div>
+    <div class="ayuda-fila"><div>Ajustes de saldo</div><div>Movimientos de saldo a favor / deuda cargados manualmente, con motivo</div></div>
+  </div>
+
+  <div class="ayuda-subtitulo">Asistencias</div>
+  <div class="ayuda-tabla">
+    <div class="ayuda-fila-h"><div>Reporte</div><div>¿Qué muestra?</div></div>
     <div class="ayuda-fila"><div>Asistencia</div><div>Porcentaje de presencia por socio en un período</div></div>
-    <div class="ayuda-fila"><div>Ranking asistencia</div><div>Socios ordenados por mayor presencia</div></div>
-    <div class="ayuda-fila"><div>Auditoría de pagos</div><div>Historial de ediciones y eliminaciones con motivo</div></div>
+    <div class="ayuda-fila"><div>Matriz</div><div>Grilla de socios × fechas con presentes / ausentes</div></div>
+    <div class="ayuda-fila"><div>Por día</div><div>Total de presentes en cada día del período</div></div>
+    <div class="ayuda-fila"><div>Ranking</div><div>Socios ordenados por mayor presencia</div></div>
+    <div class="ayuda-fila"><div>Semáforo emociones</div><div>Grilla del estado emocional (verde / amarillo / rojo) registrado al tomar asistencia</div></div>
+  </div>
+
+  <div class="ayuda-subtitulo">Socios</div>
+  <div class="ayuda-tabla">
+    <div class="ayuda-fila-h"><div>Reporte</div><div>¿Qué muestra?</div></div>
+    <div class="ayuda-fila"><div>Listado completo</div><div>Todos los socios con datos de contacto</div></div>
+    <div class="ayuda-fila"><div>Eliminados</div><div>Socios dados de baja / eliminados, con motivo y fecha</div></div>
+  </div>
+
+  <div class="ayuda-subtitulo">Citaciones</div>
+  <div class="ayuda-tabla">
+    <div class="ayuda-fila-h"><div>Reporte</div><div>¿Qué muestra?</div></div>
+    <div class="ayuda-fila"><div>Matriz de citaciones</div><div>Grilla de jugadores citados por partido / fecha</div></div>
   </div>
 </div>
 
@@ -1739,7 +1766,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.46-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.6-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
