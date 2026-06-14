@@ -428,7 +428,7 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);over
 </div>
 
 <div id="toast"></div>
-<div id="vbadge">v2.5-late</div>
+<div id="vbadge">v2.6-late</div>
 
 <!-- FIREBASE SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -606,6 +606,9 @@ function toggleBiometrico() {
 function dniToEmail(dni){ return normalizarDni(dni) + '@sgd.app'; }
 function normalizarDni(dni){ return dni?dni.toString().replace(/\./g,'').replace(/\s/g,'').trim():''; }
 
+// Flag: hay un login manual en curso. Evita que onAuthStateChanged oculte el
+// loader (y deje ver el login) entre que el signIn resuelve y entrarApp() corre.
+var _loginEnCurso = false;
 function doLogin() {
   var dni  = document.getElementById('login-dni').value.trim();
   var pass = document.getElementById('login-pass').value.trim();
@@ -613,6 +616,7 @@ function doLogin() {
   errEl.style.display = 'none';
   if (!dni || !pass){ errEl.innerText='Completá todos los campos'; errEl.style.display='block'; return; }
 
+  _loginEnCurso = true;
   mostrarLoader('Verificando...');
 
   // Firebase Auth: email ficticio basado en DNI
@@ -634,6 +638,7 @@ function doLogin() {
         });
     })
     .catch(function(e) {
+      _loginEnCurso = false;
       ocultarLoader();
       var msg = 'Credenciales incorrectas';
       if (e.code === 'auth/too-many-requests') msg = 'Demasiados intentos. Intentá más tarde.';
@@ -668,6 +673,7 @@ function doForzarCambioPass() {
 }
 
 function entrarApp(pass) {
+  _loginEnCurso = false;
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.add('visible');
   // Sin confirm() bloqueante — ofrecemos huella via botón en el perfil
@@ -1758,7 +1764,10 @@ window.onload = function() {
           cargarDatos();
           actualizarBtnBio();
           iniciarFecha();
-        } else {
+        } else if (!_loginEnCurso) {
+          // Solo mostramos el login si NO hay un login manual completándose.
+          // (Durante doLogin, el signIn dispara este callback antes de guardar la
+          //  sesión; sin este guard el loader se ocultaba y parpadeaba el login.)
           ocultarLoader();
         }
       });
