@@ -1766,7 +1766,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.6-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.7-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -8200,7 +8200,7 @@ function rptAsistenciaMatriz() {
 
   if(!fechas.length){
     setCards([{val:0, lbl:'Sin registros en el rango'}]);
-    document.getElementById('rTabla').innerHTML = '<p style="color:var(--muted);padding:20px;">Sin datos en el rango seleccionado.</p>';
+    (document.getElementById('r-tabla') || document.getElementById('rTabla')).innerHTML = '<p style="color:var(--muted);padding:20px;">Sin datos en el rango seleccionado.</p>';
     return;
   }
 
@@ -8247,7 +8247,7 @@ function rptAsistenciaMatriz() {
 
   if(!socios.length && !invitados.length){
     setCards([{val:0, lbl:'Sin socios con registros'}]);
-    document.getElementById('rTabla').innerHTML = '<p style="color:var(--muted);padding:20px;">Sin socios con registros en el rango.</p>';
+    (document.getElementById('r-tabla') || document.getElementById('rTabla')).innerHTML = '<p style="color:var(--muted);padding:20px;">Sin socios con registros en el rango.</p>';
     return;
   }
 
