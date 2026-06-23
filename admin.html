@@ -1766,7 +1766,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.8-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.9-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -8077,16 +8077,28 @@ function rptTipoPago() {
   }
 }
 
+// Categoria del turno de un registro de asistencia. El label se guarda como
+// "dia hora - grupo" (grupo = categoria), asi que es lo que sigue al ultimo ' - '.
+// Los invitados (DNI INV_*) no tienen categoria propia: usan la del turno.
+function _catDeRegistro(r){
+  var l = (r[2]||'').toString();
+  var i = l.lastIndexOf(' - ');
+  if(i >= 0){ var g = l.slice(i+3).trim(); if(g) return g; }
+  var p = (r[1]||'').toString().split('_');
+  if(p.length >= 2 && typeof DB!=='undefined' && DB.horarios){ var h = DB.horarios[parseInt(p[1])]; if(h) return String(h[4]||'').trim(); }
+  return '';
+}
 function rptAsistencia() {
   var rango = getRangoFechas();
   var cat = document.getElementById('rCat').value;
   var stats = {};
-  var nombreInv = {}; // dni sintetico -> nombre del invitado (para mostrar en filas)
+  var nombreInv = {}; // dni sintetico -> nombre del invitado
+  var invCat = {};    // dni sintetico -> categoria (grupo del turno)
   asistencias.filter(function(r){ return enRango(r[0], rango.desde, rango.hasta); }).forEach(function(r){
     var dni = (r[3]||'').toString(); if(!stats[dni]) stats[dni] = {total:0, pres:0};
     stats[dni].total++;
     if(r[5]===true||String(r[5]).toLowerCase()==='true') stats[dni].pres++;
-    if (dni.indexOf('INV_') === 0 && !nombreInv[dni]) nombreInv[dni] = r[4]||'(sin nombre)';
+    if (dni.indexOf('INV_') === 0){ if(!nombreInv[dni]) nombreInv[dni] = r[4]||'(sin nombre)'; invCat[dni] = _catDeRegistro(r); }
   });
   var rows = [];
   DB.jugadores.slice(1).filter(function(f){ var a = f[COL.ACTIVO]; return a===true||String(a).toLowerCase()==='si'; }).forEach(function(f){
@@ -8097,16 +8109,15 @@ function rptAsistencia() {
     var cl = pct>=75?'ok':pct>=50?'':'debe';
     rows.push('<tr>' + td((f[COL.APELLIDO]||'') + ', ' + (f[COL.NOMBRE]||'')) + td(f[COL.CATEGORIA_APP]||'','muted') + td(s.pres,'muted') + td(s.total,'muted') + td(pct+'%',cl+' num') + '</tr>');
   });
-  // Invitados — solo si no hay filtro de categoria (los invitados no tienen cat)
-  if (!cat) {
-    Object.keys(nombreInv).forEach(function(dni){
-      var s = stats[dni]; if(!s) return;
-      var pct = Math.round(s.pres/s.total*100);
-      var cl = pct>=75?'ok':pct>=50?'':'debe';
-      var nom = '<span style="background:rgba(201,162,39,.22);color:var(--secondary);font-size:9px;padding:1px 6px;border-radius:8px;font-weight:800;margin-right:6px;">INV</span>' + nombreInv[dni];
-      rows.push('<tr>' + td(nom) + td('invitado','muted') + td(s.pres,'muted') + td(s.total,'muted') + td(pct+'%',cl+' num') + '</tr>');
-    });
-  }
+  // Invitados — su categoria es el grupo del turno al que asistieron
+  Object.keys(nombreInv).forEach(function(dni){
+    if (cat && (invCat[dni]||'') !== String(cat).trim()) return;
+    var s = stats[dni]; if(!s) return;
+    var pct = Math.round(s.pres/s.total*100);
+    var cl = pct>=75?'ok':pct>=50?'':'debe';
+    var nom = '<span style="background:rgba(201,162,39,.22);color:var(--secondary);font-size:9px;padding:1px 6px;border-radius:8px;font-weight:800;margin-right:6px;">INV</span>' + nombreInv[dni];
+    rows.push('<tr>' + td(nom) + td((invCat[dni]||'invitado'),'muted') + td(s.pres,'muted') + td(s.total,'muted') + td(pct+'%',cl+' num') + '</tr>');
+  });
   rows.sort(function(a,b){ return b.localeCompare(a); });
   setCards([{val:rows.length, lbl:T('socios') + ' con registros'}]);
   setTablaHeaders([T('socio'),T('grupo'),'Presentes','Total','%']);
@@ -8124,11 +8135,10 @@ function rptAsistenciaPorDia() {
     var turnoId = r[1] || '';
     var dni     = r[3] || '';
     var nombre  = r[4] || '';
-    var catSoc  = r[5] !== undefined ? r[5] : (r[6] || ''); // col 5=Presente, 6=Categoria en algunos formatos
     var presente= r[5] === true || String(r[5]).toLowerCase() === 'true';
-    var catAsist= r[6] || '';
+    var catAsist= _catDeRegistro(r); // categoria = grupo del turno (incluye invitados)
 
-    // Si hay filtro de categor&iacute;a, filtrar por la categor&iacute;a del registro
+    // Si hay filtro de categoria, filtrar por la categoria del turno
     if(cat && catAsist && String(catAsist).trim() !== String(cat).trim()) return;
 
     var key = fecha + '||' + turnoId;
@@ -8237,20 +8247,19 @@ function rptAsistenciaMatriz() {
     return (a[COL.APELLIDO]||'').localeCompare(b[COL.APELLIDO]||'');
   });
 
-  // Invitados (DNI sintetico INV_*) — solo si no hay filtro de categoria
+  // Invitados (DNI sintetico INV_*) — su categoria es el grupo del turno
   var invitados = [];
-  if (!cat) {
-    var invMap = {};
-    asistFiltradas.forEach(function(r){
-      var dni = (r[3]||'').toString();
-      if (dni.indexOf('INV_') !== 0) return;
-      if (!invMap[dni]) {
-        invMap[dni] = true;
-        invitados.push({ dni: dni, nombre: r[4] || '(sin nombre)' });
-      }
-    });
-    invitados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
-  }
+  var invMap = {};
+  asistFiltradas.forEach(function(r){
+    var dni = (r[3]||'').toString();
+    if (dni.indexOf('INV_') !== 0) return;
+    if (cat && _catDeRegistro(r) !== String(cat).trim()) return;
+    if (!invMap[dni]) {
+      invMap[dni] = true;
+      invitados.push({ dni: dni, nombre: r[4] || '(sin nombre)' });
+    }
+  });
+  invitados.sort(function(a,b){ return (a.nombre||'').localeCompare(b.nombre||''); });
 
   if(!socios.length && !invitados.length){
     setCards([{val:0, lbl:'Sin socios con registros'}]);
@@ -8796,7 +8805,12 @@ function rptRankingAsist() {
   var stats = {};
   asistencias.filter(function(r){
     if(!enRango(r[0], rango.desde, rango.hasta)) return false;
-    if(dniByCat && !dniByCat[(r[3]||'').toString().trim()]) return false;
+    if(dniByCat){
+      var _d = (r[3]||'').toString().trim();
+      // invitados: su categoria es la del turno (grupo); el resto, por categoria del socio
+      if(_d.indexOf('INV_') === 0) return _catDeRegistro(r) === String(cat).trim();
+      if(!dniByCat[_d]) return false;
+    }
     return true;
   }).forEach(function(r){
     var dni = r[3]; if(!stats[dni]) stats[dni] = {total:0, pres:0, nombre:r[4]||''};
