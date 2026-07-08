@@ -691,6 +691,21 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
       <button class="btn btn-save" onclick="ejecutarMasiva()" id="btn-masiva" style="width:100%;">GENERAR INSCRIPCIONES</button>
     </div>
 
+    <!-- Arancel / cargo unico (masivo) -->
+    <div class="admin-card" id="cardArancel">
+      <div class="admin-title">&#x1F3AB; Arancel / Cargo único</div>
+      <p style="font-size:12px;color:var(--muted);">Asigna un cargo de <b>una sola vez</b> (ej. "Inscripción 2027") a todos los socios activos de una categoría. Se paga en el cobro normal (se tilda junto con las cuotas), admite <b>pagos parciales</b> y <b>NO se repite</b> todos los meses. El monto puede ser distinto por categoría — corré esto una vez por cada una. Los que ya lo tienen se saltean.</p>
+      <div style="margin-bottom:8px;">
+        <label class="filter-label">Categoría</label>
+        <select id="arancel-cat" class="edit-input" style="width:100%;margin-top:4px;"><option value="">-- Seleccionar --</option></select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 120px;gap:8px;margin-bottom:10px;">
+        <div><label class="filter-label">Concepto</label><input id="arancel-concepto" class="edit-input" style="width:100%;margin-top:4px;" placeholder="ej: Inscripción 2027"></div>
+        <div><label class="filter-label">Monto ($)</label><input id="arancel-monto" type="number" class="edit-input" style="width:100%;margin-top:4px;" placeholder="$"></div>
+      </div>
+      <button class="btn btn-save" onclick="ejecutarArancelMasivo()" style="width:100%;">ASIGNAR ARANCEL A LA CATEGORÍA</button>
+    </div>
+
         <!-- Herramientas saldo -->
     <div class="admin-card">
       <div class="admin-title">Estado de cuotas</div>
@@ -1769,7 +1784,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.10-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.11-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -2394,6 +2409,8 @@ function inscToObj(doc) {
     // manual=true: el monto fue seteado a mano (beca/excepcion) y NO se
     // sobreescribe en cascadas masivas de precio.
     manual: d.manual === true,
+    // unico=true: arancel / cargo de una sola vez (no cuota mensual).
+    unico: d.unico === true || d.unico === 'true',
     // FASE 2
     planId: d.planId||'',
     _legacy: { plan: d.plan||'' }
@@ -3643,12 +3660,14 @@ function calcularEstadoTiempoReal(f) {
   });
 
   var planMonto = inscVigentes.reduce(function(s,i){
+    if (i.unico === true || i.unico === 'true') return s; // el arancel no suma al monto mensual
     var m = Number(i.monto) || 0;
     var d = Number(i.descuentoHno) || 0;
     var esCS = /cuota\s*social/i.test(i.plan || '');
     return s + (!esCS && d > 0 && d < m ? m - d : m);
   }, 0);
-  var planNom = inscVigentes.map(function(i){ return i.plan; }).join(' + ');
+  var planNom = inscVigentes.filter(function(i){ return !(i.unico === true || i.unico === 'true'); })
+                            .map(function(i){ return i.plan; }).join(' + ');
 
   var deudaTotal = 0, favorTotal = 0;
   var estadoPeor = 'ok';
@@ -3662,6 +3681,35 @@ function calcularEstadoTiempoReal(f) {
     var esCuotaSocial = /cuota\s*social/i.test(insc.plan || '');
     if (!esCuotaSocial && descHno > 0 && descHno < pm) pm = pm - descHno;
     if (!pm) return;
+
+    // ── ARANCEL / CARGO ÚNICO ────────────────────────────────────
+    // insc.unico === true => cargo de una sola vez (ej. "Inscripción 2027"),
+    // NO cuota mensual. Deuda = monto total − todo lo pagado a ese concepto.
+    if (insc.unico === true || insc.unico === 'true') {
+      var _reqU = pm;
+      var _pagU = 0;
+      (CUOTAS_DB.cuotas || []).forEach(function(row){
+        if ((row[0]||'').toString().trim() !== dni) return;
+        var _con = (row[2]||'').toString().trim();
+        if (_con.indexOf('Historico') === 0) return;
+        if (_con !== insc.plan) return;
+        _pagU += Number(row[6]) || 0;
+      });
+      var _deudaU = Math.max(0, _reqU - _pagU);
+      var _favorU = Math.max(0, _pagU - _reqU);
+      var _estU = _deudaU <= 0.5 ? 'ok' : (_deudaU < _reqU ? 'parcial' : 'debe');
+      if ((prioridad[_estU]||0) > (prioridad[estadoPeor]||0)) estadoPeor = _estU;
+      deudaTotal += _deudaU;
+      favorTotal += _favorU;
+      detalle.push({
+        plan: insc.plan, monto: _reqU, unico: true,
+        mesesT: 1, totalPagado: _pagU, totalRequerido: _reqU, diff: _pagU - _reqU,
+        deudaPorMes: _deudaU, favorPorMes: _favorU,
+        mesesAdeudados: _deudaU > 0.5 ? [{ mes: mesHoy, falta: _deudaU, parcial: _pagU > 0, precio: _reqU }] : [],
+        estado: _estU, vigente: true, mesesCoberturaAnual: 0, coberturaHasta: ''
+      });
+      return; // no correr el cálculo mensual para un arancel
+    }
 
     var mD = insc.desde ? normFecha(insc.desde).substring(0,7) : '';
     if (!mD || mD > mesHoy) return;
@@ -3837,6 +3885,27 @@ function calcularEstadoTiempoReal(f) {
     var absorb = Math.min(ajuste, deudaTotal);
     deudaTotal -= absorb;
     favorTotal += (ajuste - absorb);
+    // Distribuir el credito absorbido sobre las inscripciones (FIFO por mes) para que
+    // el detalle por-plan — y por ende el modal de cobro — refleje la deuda NETA y no
+    // la bruta. Sin esto la card mostraba $X neto pero el modal sugeria el bruto.
+    var _restAj = absorb;
+    var _flatAj = [];
+    detalle.forEach(function(_d, _di){
+      (_d.mesesAdeudados || []).forEach(function(_m, _mi){ _flatAj.push({ mes:_m.mes, di:_di, mi:_mi }); });
+    });
+    _flatAj.sort(function(a, b){ return a.mes.localeCompare(b.mes); });
+    for (var _ai = 0; _ai < _flatAj.length && _restAj > 0.5; _ai++) {
+      var _rf = _flatAj[_ai];
+      var _mo = detalle[_rf.di].mesesAdeudados[_rf.mi];
+      if (!_mo) continue;
+      var _tk = Math.min(_mo.falta, _restAj);
+      _mo.falta -= _tk; _restAj -= _tk;
+      if (_mo.falta <= 0.5) _mo.falta = 0;
+    }
+    detalle.forEach(function(_d){
+      _d.mesesAdeudados = (_d.mesesAdeudados || []).filter(function(_m){ return _m.falta > 0.5; });
+      _d.deudaPorMes = (_d.mesesAdeudados || []).reduce(function(s, _m){ return s + _m.falta; }, 0);
+    });
     if (deudaTotal === 0 && estadoPeor !== 'none') estadoPeor = 'ok';
   } else if (ajuste < 0) {
     var neg = -ajuste;
@@ -3865,7 +3934,11 @@ function calcularEstadoTiempoReal(f) {
     saldoNetoSinAjuste: favorSinAjuste - deudaSinAjuste,
     // Flag util para reportes: ¿tiene al menos una insc vigente HOY?
     tieneVigente:   inscVigentes.length > 0,
-    detalle:        detalle
+    detalle:        detalle,
+    // Aranceles / cargos únicos pendientes o pagados (para mostrar aparte de la cuota)
+    aranceles:      detalle.filter(function(d){ return d.unico; }).map(function(d){
+                      return { plan: d.plan, total: d.totalRequerido, pagado: d.totalPagado, falta: d.deudaPorMes };
+                    })
   };
 }
 
@@ -4200,6 +4273,7 @@ window.repararCuotasFeas = function(opts) {
     toast('Error: ' + (e.message||e), 'err');
   });
 };// -- RENDER SOCIOS ------------------------------------------------
+function _normBusca(s){ return String(s||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').trim(); }
 function renderPlayers() {
   // Si el filtro es Inactivos y no están cargados, cargarlos primero
   var estFil = document.getElementById('fEstado');
@@ -4207,7 +4281,7 @@ function renderPlayers() {
     lazyCargarInactivos(function(){ renderPlayers(); });
     return;
   }
-  var busq = document.getElementById('busq').value.toLowerCase();
+  var busq = _normBusca(document.getElementById('busq').value);
   var genF = document.getElementById('fGen').value, catF = document.getElementById('fCat').value;
   var estF = document.getElementById('fEstado').value, cuotaF = document.getElementById('fCuota').value;
   var grid = document.getElementById('gridJugadores');
@@ -4226,7 +4300,7 @@ function renderPlayers() {
     var cc = catObj ? catObj[1] : 'transparent';
     var cv = estadoCuotaV2(f), est = cv.estado;
 
-    if(!(nom.toLowerCase().includes(busq) || dni.includes(busq))) return;
+    if(!(_normBusca(nom).includes(busq) || dni.includes(busq))) return;
     if(f._eliminado && estF !== 'Eliminados') return;
     if(!f._eliminado && estF === 'Eliminados') return;
     if(genF && gen !== genF) return;
@@ -4358,12 +4432,12 @@ function renderCuotas() {
   }
   window._cuotasPagina = 0;
   var filt = document.getElementById('cFiltro').value, fcat = document.getElementById('cFiltrocat').value;
-  var busq = document.getElementById('cBusq').value.toLowerCase(), per = document.getElementById('cPeriodo').value;
+  var busq = _normBusca(document.getElementById('cBusq').value), per = document.getElementById('cPeriodo').value;
   document.getElementById('cuotas-table-title').innerText = 'Cuotas - ' + periodoLabel(per);
   var act = DB.jugadores.slice(1).filter(function(f){ var a = f[COL.ACTIVO]; return a===true||String(a).toLowerCase()==='si'||String(a).toLowerCase()==='true'; });
   var tc=0, pa=0, de=0, pv=0, re=0, es=0, deudaAcum=0, saldoFavorAcum=0, rows=[];
   act.forEach(function(f){
-    var nom = (f[COL.APELLIDO] + ' ' + f[COL.NOMBRE]||'').toLowerCase();
+    var nom = _normBusca(f[COL.APELLIDO] + ' ' + f[COL.NOMBRE]);
     var dni = (f[COL.DNI]||f[COL.TARJETA]||'').toString(), cat = f[COL.CATEGORIA_APP]||'';
     var cv = estadoCuotaV2(f), est = cv.estado;
     var mo = cv.planMonto || 0;
@@ -4390,7 +4464,7 @@ function renderCuotas() {
     if(fcat && cat !== fcat) return;
     if(busq && !nom.includes(busq) && !dni.includes(busq)) return;
     if(cv.planNom){ tc++; es+=mo; if(est==='ok'){pa++;re+=pagado;} else if(est==='vence'){pv++;re+=pagado;} else de++; deudaAcum+=(cv.deuda||0); saldoFavorAcum+=(cv.saldoAFavor||0); }
-    rows.push({f:f, pl:cv.planNom||'', mo:mo, est:est, hasta:cv.hasta, hastaStr:hastaStr, pagado:pagado, extraConceptos:_extraConceptos});
+    rows.push({f:f, pl:cv.planNom||'', mo:mo, est:est, hasta:cv.hasta, hastaStr:hastaStr, pagado:pagado, extraConceptos:_extraConceptos, aranceles: cv.aranceles||[]});
   });
   document.getElementById('rc-total').innerText = tc;
   document.getElementById('rc-pagaron').innerText = pa;
@@ -4418,9 +4492,13 @@ function renderCuotas() {
     html += '<div><span class="cuota-pill ' + cl + '">' + lb + '</span></div>';
     var _chipExtras = it.extraConceptos && it.extraConceptos.length ?
       it.extraConceptos.map(function(x){ return '<span style="background:rgba(201,162,39,.2);color:var(--secondary);font-size:10px;padding:1px 6px;border-radius:8px;margin-top:3px;display:inline-block;">+' + x + '</span>'; }).join(' ') : '';
+    var _chipArancel = (it.aranceles||[]).filter(function(a){ return a.falta > 0.5; }).map(function(a){
+      return '<span style="background:rgba(220,53,69,.15);color:var(--red);font-size:10px;padding:1px 6px;border-radius:8px;margin-top:3px;display:inline-block;">&#x1F3AB; ' + a.plan + ': falta $' + Number(a.falta).toLocaleString('es-AR') + '</span>';
+    }).join(' ');
     html += '<div><div style="font-size:12px;font-weight:600;">' + (it.pl||'-') + '</div>' +
             '<div style="font-size:12px;font-weight:700;color:var(--secondary);">' + (it.mo ? '$' + it.mo.toLocaleString('es-AR') : '') + '</div>' +
             (_chipExtras ? '<div>' + _chipExtras + '</div>' : '') +
+            (_chipArancel ? '<div>' + _chipArancel + '</div>' : '') +
             '</div>';
     html += '<div style="font-size:13px;font-weight:700;">' + (it.pagado ? '$' + it.pagado.toLocaleString('es-AR') : '-') + '</div>';
     html += '<div style="font-size:12px;color:var(--muted);">' + _vigente + '</div>';
@@ -4454,6 +4532,14 @@ function calcularSaldoPorInscripcion(insc) {
     if (cv.detalle[ii].plan === insc.plan) { d = cv.detalle[ii]; break; }
   }
   if (!d) return {saldoPesos:0, faltaPesos:pm, estado:'debe', mesesExtra:0};
+
+  // Arancel / cargo único: deuda = total − pagado (no mensual). Si ya está saldado,
+  // no sugiere nada; si falta, sugiere lo que falta.
+  if (d.unico) {
+    var _fu = Number(d.deudaPorMes) || 0;
+    if (_fu <= 0.5) return {saldoPesos: Number(d.favorPorMes)||0, faltaPesos:0, estado:'exacto', mesesExtra:0};
+    return {saldoPesos:0, faltaPesos:_fu, estado:(_fu < pm ? 'parcial' : 'debe'), mesesExtra:0};
+  }
 
   // Usar deudaPorMes/favorPorMes (post-compensacion FIFO) para que el modal
   // refleje el saldo NETO por insc, no el bruto pre-compensacion.
@@ -4511,6 +4597,30 @@ function abrirModalPago(dni, nom, pl, hoja, mo, plSoc, moSoc) {
     var _txt = (_cobSel.options[_ci].text || '').trim().toLowerCase();
     if (_txt.indexOf('juana') >= 0 && _txt.indexOf('sestua') >= 0) { _cobSel.selectedIndex = _ci; break; }
   }
+  // Poblar el autocompletado de "cobro extraordinario" SOLO con los conceptos que ya se
+  // usaron de verdad (no inventamos genericos). Los del propio socio primero.
+  (function(){
+    var dl = document.getElementById('mp-extra-sugerencias'); if(!dl) return;
+    var dniStr = (dni||'').toString().trim();
+    var esPlan = {};
+    (DB.actividades||[]).forEach(function(a){ if(a && a.nombre) esPlan[a.nombre.toLowerCase().trim()]=1; });
+    (DB.inscripciones||[]).forEach(function(i){ if(i && i.plan) esPlan[i.plan.toLowerCase().trim()]=1; });
+    var vistos = {}, propios = [], otros = [];
+    var recorrer = function(soloSocio){
+      (CUOTAS_DB.cuotas||[]).forEach(function(c){
+        if(((c[0]||'').toString().trim() === dniStr) !== soloSocio) return;
+        var con = (c[2]||'').toString().trim(); if(!con) return;
+        var low = con.toLowerCase();
+        if(low.indexOf('historico') === 0) return;
+        if(con.indexOf('+') >= 0) return;
+        if(esPlan[low]) return;
+        if(vistos[low]) return; vistos[low]=1;
+        (soloSocio ? propios : otros).push(con);
+      });
+    };
+    recorrer(true); recorrer(false);
+    dl.innerHTML = propios.concat(otros).map(function(v){ return '<option value="' + v.replace(/"/g,'&quot;') + '">'; }).join('');
+  })();
   // Poblar planes vigentes del socio
   var dniStr = (dni||'').toString().trim();
   var inscVig = getInscripcionesVigentes(dniStr, null);
@@ -4546,6 +4656,11 @@ function abrirModalPago(dni, nom, pl, hoja, mo, plSoc, moSoc) {
           + 'debe $' + Number(_sc.faltaPesos).toLocaleString('es-AR') + '</span>';
         _montoSugerido = _sc.faltaPesos;
       }
+      // Arancel único ya saldado: no sugerir cobrarlo de nuevo (sino sugeriría el total otra vez).
+      if(i.unico && _sc.estado === 'exacto') {
+        _montoSugerido = 0;
+        _badge = '<span style="background:rgba(26,122,60,.25);color:#6de097;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:6px;">arancel pagado</span>';
+      }
       // Cuota Social SIEMPRE se cobra 1 mes a la vez al valor base. Si la
       // persona debe 2 meses de CS, son 2 cobros separados — no se acumula.
       // Asi evitamos que un override del total deportivo baje AFA y deje CS
@@ -4554,8 +4669,8 @@ function abrirModalPago(dni, nom, pl, hoja, mo, plSoc, moSoc) {
       return '<label class="pago-plan-row" style="flex-wrap:wrap;gap:4px;">'
         + '<input type="checkbox" name="pp_check" value="' + idx + '" checked data-plan="' + i.plan + '" data-monto="' + _montoSugerido + '" onchange="recalcularTotalPago()">'
         + '<span class="emoji" style="font-size:16px;">' + icono + '</span>'
-        + '<span class="pago-plan-nombre">' + i.plan + '</span>'
-        + '<span class="pago-plan-monto">$' + Number(i.monto).toLocaleString('es-AR') + '/mes</span>'
+        + '<span class="pago-plan-nombre">' + i.plan + (i.unico ? ' <span style="font-size:9px;background:rgba(201,162,39,.2);color:var(--secondary);padding:1px 5px;border-radius:6px;">ÚNICO</span>' : '') + '</span>'
+        + '<span class="pago-plan-monto">$' + Number(i.monto).toLocaleString('es-AR') + (i.unico ? '' : '/mes') + '</span>'
         + _badge
         + '</label>';
     }).join('');
@@ -4705,7 +4820,18 @@ function confirmarPago() {
   if(pagos.length === 0) {
     var _monto = Number(document.getElementById('mp-monto').value)||0;
     if(!_monto || _monto <= 0) { pagoCtx._enviando = false; return alert('El monto debe ser mayor a cero'); }
-    pagos.push({plan: pagoCtx.planNom || 'Actividad', monto: _monto});
+    // Sin plan tildado: NO asumir el nombre combinado del socio (antes quedaba mal
+    // imputado). Si hay un cobro extraordinario con descripcion, usar esa; si no, pedir el concepto.
+    var _exChk  = document.getElementById('mp-extra-check');
+    var _exDesc = (document.getElementById('mp-extra-desc')||{}).value;
+    var _concepto = (_exChk && _exChk.checked && _exDesc && _exDesc.trim()) ? _exDesc.trim() : null;
+    if(!_concepto){
+      _concepto = prompt('No tildaste ningún plan.\n\n¿A qué concepto corresponde este pago de $' + _monto.toLocaleString('es-AR') + '?\n(ej: Inscripcion, Torneo, Equipamiento...)', '');
+      if(_concepto === null){ pagoCtx._enviando = false; return; }
+      _concepto = _concepto.trim();
+      if(!_concepto){ pagoCtx._enviando = false; return alert('Tenés que indicar el concepto del pago para continuar.'); }
+    }
+    pagos.push({plan: _concepto, monto: _monto});
   }
   // Verificar que ningún pago tenga monto negativo o cero
   var _montoInvalido = pagos.find(function(p){ return !p.monto || p.monto <= 0; });
@@ -4738,6 +4864,7 @@ function confirmarPago() {
     pagos.forEach(function(pp){
       _inscsAll.forEach(function(_i){
         if ((_i.plan||'') !== pp.plan) return;
+        if (_i.unico === true || _i.unico === 'true') return; // aranceles no tienen periodo mensual
         var _idIso = (_i.desde||'').toString().trim() ? normFecha(_i.desde).substring(0,10) : '';
         if (_idIso && _idIso > desde) {
           var _k = pp.plan + '|' + _i._row;
@@ -5106,9 +5233,9 @@ function cargarListaAsist(turnoId) {
 }
 
 function filtrarListaAsist() {
-  var q = document.getElementById('asist-busq').value.toLowerCase();
+  var q = _normBusca(document.getElementById('asist-busq').value);
   document.querySelectorAll('#asist-rows .asist-row').forEach(function(r){
-    r.style.display = !q || r.dataset.nom.includes(q) ? '' : 'none';
+    r.style.display = !q || _normBusca(r.dataset.nom).includes(q) ? '' : 'none';
   });
 }
 
@@ -7311,6 +7438,58 @@ function poblarSelectMasiva() {
       }).join('');
   if(prev) sel.value = prev;
   onMasivaCatChange();
+  poblarSelectArancel();
+}
+
+// ── ARANCEL / CARGO ÚNICO (masivo) ───────────────────────────────
+function poblarSelectArancel(){
+  var sel = document.getElementById('arancel-cat'); if(!sel) return;
+  var prev = sel.value;
+  sel.innerHTML = '<option value="">-- Seleccionar --</option>'
+    + (DB.categorias||[]).map(function(c){ return '<option value="' + c[0] + '">' + c[0] + '</option>'; }).join('');
+  if(prev) sel.value = prev;
+}
+function ejecutarArancelMasivo(){
+  var cat = document.getElementById('arancel-cat').value;
+  if(!cat) return alert('Seleccioná una categoría');
+  var concepto = document.getElementById('arancel-concepto').value.trim();
+  if(!concepto) return alert('Ingresá el concepto del arancel (ej: Inscripción 2027)');
+  var monto = parseFloat(document.getElementById('arancel-monto').value)||0;
+  if(monto <= 0) return alert('Ingresá un monto mayor a cero');
+  var socios = DB.jugadores.slice(1).filter(function(f){
+    var a = f[COL.ACTIVO]; if(!(a===true||String(a).toLowerCase()==='si'||String(a).toLowerCase()==='true')) return false;
+    return String(f[COL.CATEGORIA_APP]||'').trim() === String(cat).trim();
+  });
+  if(!socios.length) return alert('No hay socios activos en "' + cat + '"');
+  var yaTiene = {};
+  (DB.inscripciones||[]).forEach(function(i){
+    if((i.plan||'').trim().toLowerCase() === concepto.toLowerCase()) yaTiene[(i.dni||'').toString().trim()] = 1;
+  });
+  var aCrear = socios.filter(function(f){ return !yaTiene[(f[COL.DNI]||f[COL.TARJETA]||'').toString().trim()]; });
+  if(!aCrear.length) return alert('Todos los socios activos de "' + cat + '" ya tienen "' + concepto + '".');
+  sgdConfirm('Asignar <b>' + concepto + ' ($' + monto.toLocaleString('es-AR') + ')</b> a <b>' + aCrear.length + '</b> socio(s) activos de <b>' + cat + '</b>?<br><small style="color:var(--muted)">Cargo único (no mensual). Los que ya lo tienen se saltean.</small>', function(){
+    mostrarLoader('Asignando arancel...');
+    var hoy = new Date().toISOString().split('T')[0];
+    var batch = db.batch();
+    var creados = [];
+    aCrear.forEach(function(f){
+      var dni = (f[COL.DNI]||f[COL.TARJETA]||'').toString().trim();
+      var nombre = (f[COL.APELLIDO]||'') + ' ' + (f[COL.NOMBRE]||'');
+      var ref = db.collection('inscripciones').doc();
+      var data = { dni:dni, nombre:nombre, plan:concepto, monto:monto, desde:hoy, hasta:'', descuentoHno:0, unico:true };
+      batch.set(ref, data);
+      creados.push({ dni:dni, nombre:nombre, plan:concepto, monto:monto, desde:hoy, hasta:'', descuentoHno:0, unico:true, _row: ref.id });
+    });
+    batch.commit().then(function(){
+      DB.inscripciones = (DB.inscripciones||[]).concat(creados);
+      ocultarLoader();
+      toast('Arancel asignado a ' + creados.length + ' socio(s)', 'ok');
+      document.getElementById('arancel-concepto').value = '';
+      document.getElementById('arancel-monto').value = '';
+      try { renderCuotas(); } catch(_){}
+      try { renderPlayers(); } catch(_){}
+    }).catch(function(e){ ocultarLoader(); alert('Error: ' + (e.message||e)); });
+  }, 'ASIGNAR');
 }
 
 function onMasivaCatChange() {
@@ -9487,6 +9666,10 @@ function abrirEditarPago(fsId) {
   }
   document.getElementById('audit-fecha').value = fechaRaw;
   document.getElementById('audit-obs').value = c[9]||'';
+  // Periodo desde/hasta — normalizar dd/MM/yyyy -> yyyy-MM-dd para el input date
+  var _toISO = function(s){ s=(s||'').toString(); var m=s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? (m[3]+'-'+m[2]+'-'+m[1]) : s; };
+  document.getElementById('audit-desde').value = _toISO(c[3]);
+  document.getElementById('audit-hasta').value = _toISO(c[4]);
   document.getElementById('audit-motivo').value = '';
   document.getElementById('audit-motivo-error').style.display = 'none';
   document.getElementById('audit-btn-confirmar').style.background = 'var(--secondary)';
@@ -9553,16 +9736,25 @@ function confirmarAuditoriaPago() {
     var nuevoMetodo = document.getElementById('audit-metodo').value;
     var nuevaFecha  = document.getElementById('audit-fecha').value;
     var nuevaObs    = document.getElementById('audit-obs').value.trim();
+    var nuevoDesde  = document.getElementById('audit-desde').value; // yyyy-MM-dd
+    var nuevoHasta  = document.getElementById('audit-hasta').value; // yyyy-MM-dd
     // Convertir fecha a dd/MM/yyyy
     if(nuevaFecha.match(/^\d{4}-\d{2}-\d{2}$/)) {
       var fp = nuevaFecha.split('-');
       nuevaFecha = fp[2]+'/'+fp[1]+'/'+fp[0];
     }
-    audDoc.pagoNuevo = {monto:nuevoMonto, metodo:nuevoMetodo, fechaPago:nuevaFecha, obs:nuevaObs};
+    // Validacion basica del periodo
+    if(nuevoDesde && nuevoHasta && nuevoHasta < nuevoDesde){
+      ocultarLoader();
+      toast('El período "hasta" no puede ser anterior al "desde".', 'err');
+      return;
+    }
+    audDoc.pagoNuevo = {monto:nuevoMonto, metodo:nuevoMetodo, fechaPago:nuevaFecha, obs:nuevaObs, periodoDesde:nuevoDesde, periodoHasta:nuevoHasta};
 
     // 1. Actualizar en Firestore
     db.collection('cuotas').doc(_auditCtx.fsId).update({
-      monto: nuevoMonto, metodo: nuevoMetodo, fechaPago: nuevaFecha, obs: nuevaObs
+      monto: nuevoMonto, metodo: nuevoMetodo, fechaPago: nuevaFecha, obs: nuevaObs,
+      periodoDesde: nuevoDesde, periodoHasta: nuevoHasta
     }).then(function() {
       _contarEscrituras(1);
       // 2. Guardar auditoría
@@ -9576,6 +9768,8 @@ function confirmarAuditoriaPago() {
         CUOTAS_DB.cuotas[idx][7] = nuevoMetodo;
         CUOTAS_DB.cuotas[idx][5] = nuevaFecha;
         CUOTAS_DB.cuotas[idx][9] = nuevaObs;
+        CUOTAS_DB.cuotas[idx][3] = nuevoDesde;
+        CUOTAS_DB.cuotas[idx][4] = nuevoHasta;
       }
       cerrarModalAuditoria();
       ocultarLoader();
@@ -10664,13 +10858,13 @@ function emailRenderRecordatorios() {
   var filtroEl = document.getElementById('em-rec-filtro');
   var busqEl   = document.getElementById('em-rec-busq');
   var filtro = filtroEl ? filtroEl.value : 'todos_deben';
-  var busq   = ((busqEl && busqEl.value)||'').toLowerCase().trim();
+  var busq   = _normBusca((busqEl && busqEl.value)||'');
 
   var socios = DB.jugadores.slice(1).filter(function(f){
     var a = f[COL.ACTIVO];
     if (!(a===true||String(a).toLowerCase()==='si')) return false;
     if (busq) {
-      var nombre = ((f[COL.APELLIDO]||'')+' '+(f[COL.NOMBRE]||'')).toLowerCase();
+      var nombre = _normBusca((f[COL.APELLIDO]||'')+' '+(f[COL.NOMBRE]||''));
       var dni = (f[COL.DNI]||'').toString();
       if (nombre.indexOf(busq)<0 && dni.indexOf(busq)<0) return false;
     }
@@ -10892,7 +11086,16 @@ function emailTemplateRecordatorio(it) {
             <label class="filter-label">Observaciones</label>
             <input id="audit-obs" type="text" class="edit-input" style="width:100%;margin-top:4px;" placeholder="Opcional">
           </div>
+          <div>
+            <label class="filter-label">Período desde</label>
+            <input id="audit-desde" type="date" class="edit-input" style="width:100%;margin-top:4px;">
+          </div>
+          <div>
+            <label class="filter-label">Período hasta</label>
+            <input id="audit-hasta" type="date" class="edit-input" style="width:100%;margin-top:4px;">
+          </div>
         </div>
+        <p style="font-size:10px;color:var(--muted);margin:-2px 0 10px;">El período (desde/hasta) define qué meses cubre este pago en el cálculo de deuda.</p>
       </div>
       <div style="margin-bottom:16px;">
         <label class="filter-label">Motivo <span style="color:var(--red);">*</span></label>
