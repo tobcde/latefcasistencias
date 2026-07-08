@@ -878,6 +878,9 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
         <label class="filter-label">Desde</label><input type="date" id="rDesde" class="edit-input" style="height:36px;padding:0 10px;" onchange="renderReporte()"></div>
       <div class="filter-group" id="r-filter-hasta" style="display:none;">
         <label class="filter-label">Hasta</label><input type="date" id="rHasta" class="edit-input" style="height:36px;padding:0 10px;" onchange="renderReporte()"></div>
+      <div class="filter-group" id="r-filter-buscar" style="display:none;justify-content:flex-end;">
+        <label class="filter-label">&nbsp;</label>
+        <button class="btn btn-save" onclick="buscarPeriodoAsist()" style="height:36px;white-space:nowrap;" title="Vuelve a consultar Firestore para traer TODO el per&iacute;odo elegido. Necesario para meses viejos: la app en memoria solo tiene el mes actual y el anterior.">&#x1F50D; Buscar per&iacute;odo</button></div>
       <div class="filter-group" id="r-filter-caja-fecha" style="display:none;">
         <label class="filter-label">Fecha</label><input type="date" id="rCajaFecha" class="edit-input" style="height:36px;padding:0 10px;" onchange="renderReporte()"></div>
       <div class="filter-group" id="r-filter-cat">
@@ -1766,7 +1769,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.9-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.10-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -7691,6 +7694,9 @@ function renderReporte() {
   _sd('r-filter-mes', tipo === 'tipo_pago' ? '' : 'none');
   _sd('r-filter-desde', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz','auditoria','ajustes_saldo','semaforo_matriz'].includes(tipo) ? '' : 'none');
   _sd('r-filter-hasta', ['pagos_mes','asistencia','ranking_asist','asist_por_dia','asist_matriz','auditoria','ajustes_saldo','semaforo_matriz'].includes(tipo) ? '' : 'none');
+  // Botón "Buscar período": solo en reportes de asistencia, que son los que dependen de la
+  // ventana en memoria (mes actual + anterior). Permite re-consultar Firestore para meses viejos.
+  _sd('r-filter-buscar', ['asistencia','ranking_asist','asist_por_dia','asist_matriz','semaforo_matriz'].includes(tipo) ? '' : 'none');
   _sd('r-filter-caja-fecha', tipo === 'caja_dia' ? '' : 'none');
   _sd('r-filter-cat', ['deudores','al_dia','jugadores','asist_matriz','asistencia','asist_por_dia','ranking_asist','pagos_mes','caja_dia','auditoria','cit_matriz','semaforo_matriz'].includes(tipo) ? '' : 'none');
   _sd('r-filter-plan', ['pagos_mes','deudores','al_dia','tipo_pago','caja_dia','jugadores','auditoria'].includes(tipo) ? '' : 'none');
@@ -9197,6 +9203,25 @@ function lazyCargarAsistencias(cb, mesesAtras) {
       ocultarLoader();
       if(cb) cb();
     }).catch(function(e){ ocultarLoader(); toast('Error cargando asistencias: '+e.message,'err'); });
+}
+
+// Re-consulta Firestore trayendo TODOS los meses necesarios para cubrir el "Desde" elegido
+// en el reporte, y recién ahí renderiza. Necesario porque lazyCargarAsistencias() por defecto
+// solo trae el mes actual + el anterior; los meses viejos (ej. asistencias de mayo vistas en
+// julio) no están en memoria y el filtro de fecha del reporte no los encontraba.
+function buscarPeriodoAsist() {
+  var desde = (document.getElementById('rDesde') || {}).value || '';
+  if (!desde) { renderReporte(); return; }
+  var d = new Date(desde + 'T00:00:00');
+  if (isNaN(d)) { renderReporte(); return; }
+  var now = new Date();
+  // meses hacia atrás desde el mes actual hasta el mes del "Desde"
+  var meses = (now.getFullYear() - d.getFullYear()) * 12 + (now.getMonth() - d.getMonth());
+  if (meses < 1) meses = 1;
+  lazyCargarAsistencias(function(){
+    if (typeof toast === 'function') toast('Asistencias cargadas desde ' + desde + ' (' + asistencias.length + ' registros)', 'ok');
+    renderReporte();
+  }, meses);
 }
 
 function cargarMasAsistencias() {
