@@ -288,7 +288,7 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);over
     <div class="empty-state" id="asist-empty">Elegí una fecha y turno para cargar la asistencia</div>
     <div class="stats-bar" id="stats-bar" style="display:none;">
       <div class="stat-item"><div class="stat-n" id="stat-total">0</div><div class="stat-l">Total</div></div>
-      <div class="stat-item"><div class="stat-n" id="stat-pres" style="color:var(--primary);">0</div><div class="stat-l">Presentes</div></div>
+      <div class="stat-item"><div class="stat-n" id="stat-pres" style="color:var(--primary);">0</div><div class="stat-l">Presentes</div><div id="stat-pres-desglose" style="font-size:11px;font-weight:700;margin-top:2px;display:none;"></div></div>
       <div class="stat-item"><div class="stat-n" id="stat-aus" style="color:var(--red);">0</div><div class="stat-l">Ausentes</div></div>
     </div>
     <div id="lista-container" style="display:none;">
@@ -428,7 +428,7 @@ body{font-family:'Barlow',sans-serif;background:var(--bg);color:var(--text);over
 </div>
 
 <div id="toast"></div>
-<div id="vbadge">v2.6-late</div>
+<div id="vbadge">v2.7-late</div>
 
 <!-- FIREBASE SDK -->
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
@@ -1382,10 +1382,30 @@ function filtrarLista(q) {
 }
 
 function actualizarStats(total) {
-  var pres = Object.values(asistActual).filter(function(v){return v===true;}).length;
-  document.getElementById('stat-total').innerText = total;
-  document.getElementById('stat-pres').innerText  = pres;
-  document.getElementById('stat-aus').innerText   = total - pres;
+  var presAlumnos = Object.values(asistActual).filter(function(v){return v===true;}).length;
+  var ausAlumnos  = total - presAlumnos;
+  // Invitados presentes CON nombre (los unicos que se guardan). NUNCA cuentan como ausentes:
+  // solo suman a Presentes y al Total cuando estan presentes.
+  var invPres = (invitadosActual||[]).filter(function(i){ return i.presente && (i.nombre||'').trim(); }).length;
+  document.getElementById('stat-total').innerText = total + invPres;   // roster + invitados presentes
+  document.getElementById('stat-pres').innerText  = presAlumnos + invPres;
+  document.getElementById('stat-aus').innerText   = ausAlumnos;        // invitados NO suman ausentes
+  // Desglose "5 + 2 inv" solo cuando hay invitados presentes
+  var des = document.getElementById('stat-pres-desglose');
+  if (des) {
+    if (invPres > 0) {
+      des.style.display = '';
+      des.innerHTML = '<span style="color:var(--primary);">' + presAlumnos + '</span>'
+        + '<span style="color:var(--muted);"> + </span>'
+        + '<span style="color:var(--secondary);">' + invPres + ' inv</span>';
+    } else {
+      des.style.display = 'none';
+    }
+  }
+}
+// Recalcula la barra de stats usando el roster del turno actual (para refrescar al tocar invitados)
+function _refrescarStats() {
+  actualizarStats(window._jugActual ? window._jugActual.length : 0);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1412,6 +1432,7 @@ function eliminarInvitado(tempId) {
 function actualizarNombreInvitado(tempId, valor) {
   var inv = invitadosActual.find(function(i){ return i.tempId === tempId; });
   if (inv) inv.nombre = valor;
+  _refrescarStats(); // el invitado recien cuenta cuando tiene nombre cargado
 }
 
 function toggleInvitado(tempId) {
@@ -1430,6 +1451,7 @@ function toggleSemaforoInvitado(tempId, color) {
 }
 
 function renderInvitados() {
+  _refrescarStats(); // toggle/agregar/eliminar invitados pasan por aca -> refrescar contador
   var lst = document.getElementById('invitados-lista');
   if (!lst) return;
   if (!invitadosActual.length) {
