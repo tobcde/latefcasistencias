@@ -1784,7 +1784,7 @@ header{background:var(--surface);border-bottom:2px solid var(--primary);padding:
 
 
 <!-- VERSION BADGE -->
-<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.11-late</div>
+<div id="vbadge" style="position:fixed;bottom:10px;right:10px;background:rgba(0,0,0,.7);border:1px solid var(--secondary);color:var(--secondary);font-family:'Barlow Condensed',sans-serif;font-size:11px;padding:3px 8px;border-radius:6px;z-index:9999;">v2.12-late</div>
 
 <!-- PWA BANNER -->
 <div id="pwa-banner" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:linear-gradient(135deg,var(--primary-dark),var(--bg));border-top:2px solid var(--primary);padding:14px 20px;align-items:center;gap:14px;">
@@ -3189,32 +3189,54 @@ function _fsDispatch(action, p, ok, err) {
     case 'sendEmail': {
       var _emailUser = auth.currentUser;
       if (!_emailUser) { cbErr('Sin sesión activa'); break; }
-      _emailUser.getIdToken(false).then(function(_idTok) {
-        var _emailBody = {action:'sendEmail', idToken:_idTok, to:p.to||p.emailDest, subject:p.subject||p.asunto, body:p.body||p.htmlBody,
-          colorPrimario: INST.colorPrimario||'#1a7a3c', nombreOrg:INST.nombre||'SGD',
-          emailRemit: INST.emailRemitente||''};
-        var _apiKeyE = FIREBASE_CONFIG.apiKey || '';
-        var _getUrlE = GAS_URL + '?idToken=' + encodeURIComponent(_idTok)
-          + '&firebaseApiKey=' + encodeURIComponent(_apiKeyE);
-        fetch(_getUrlE, {method: 'GET', redirect: 'follow'})
-        .then(function(r){ return r.text(); })
-        .then(function(t) {
-          var resp; try { resp = JSON.parse(t); } catch(e) { resp = {error:'inválido'}; }
-          if (!resp.ok || !resp.nonce) { cbErr(resp.error || 'Error auth'); return; }
-          _emailBody.nonce = resp.nonce;
-          delete _emailBody.idToken;
-          fetch(GAS_URL, {
-            method: 'POST',
-            redirect: 'follow',
-            headers: {'Content-Type': 'text/plain'},
-            body: JSON.stringify(_emailBody)
-          })
+      var _emailBody = null;
+      // El envío es en 2 pasos contra el GAS: (1) GET para verificar el token y
+      // obtener un nonce de auth, (2) POST que manda el mail con ese nonce.
+      // El GET es idempotente y es el que fallaba de forma transitoria: cuando
+      // Apps Script throttlea una ráfaga de envíos devuelve HTML en vez de JSON,
+      // y eso se veía en el historial como error "inválido". Por eso reintentamos
+      // SOLO el paso GET (hasta 3 veces con backoff). El POST NO se reintenta:
+      // el nonce es de un solo uso, así que un reintento arriesgaría doble envío.
+      var _emailGetNonce = function(_intento, done, fail) {
+        var _retryOrFail = function(motivo) {
+          if (_intento < 3) { setTimeout(function(){ _emailGetNonce(_intento + 1, done, fail); }, 900 * _intento); }
+          else { fail(motivo); }
+        };
+        _emailUser.getIdToken(false).then(function(_idTok) {
+          _emailBody = {action:'sendEmail', idToken:_idTok, to:p.to||p.emailDest, subject:p.subject||p.asunto, body:p.body||p.htmlBody,
+            colorPrimario: INST.colorPrimario||'#1a7a3c', nombreOrg:INST.nombre||'SGD',
+            emailRemit: INST.emailRemitente||''};
+          var _apiKeyE = FIREBASE_CONFIG.apiKey || '';
+          var _getUrlE = GAS_URL + '?idToken=' + encodeURIComponent(_idTok)
+            + '&firebaseApiKey=' + encodeURIComponent(_apiKeyE);
+          fetch(_getUrlE, {method: 'GET', redirect: 'follow'})
           .then(function(r){ return r.text(); })
-          .then(function(t){ var d; try{d=JSON.parse(t);}catch(e){d={ok:true};} cb(d); })
-          .catch(function(){ cbErr('Sin conexión para enviar email'); });
+          .then(function(t) {
+            var resp, _parseOk = true;
+            try { resp = JSON.parse(t); } catch(e) { _parseOk = false; }
+            // Respuesta no-JSON (HTML de throttle de Google) → transitorio: reintentar.
+            if (!_parseOk) { _retryOrFail('inválido'); return; }
+            // JSON con error real (ej: "Acceso denegado") → no reintentar, no ayuda.
+            if (!resp.ok || !resp.nonce) { fail(resp.error || 'Error auth'); return; }
+            done(resp.nonce);
+          })
+          .catch(function(){ _retryOrFail('Sin conexión'); });
+        }).catch(function(){ _retryOrFail('Error de autenticación'); });
+      };
+      _emailGetNonce(1, function(_nonce) {
+        // Paso 2 (una sola vez): enviar con el nonce ya verificado.
+        _emailBody.nonce = _nonce;
+        delete _emailBody.idToken;
+        fetch(GAS_URL, {
+          method: 'POST',
+          redirect: 'follow',
+          headers: {'Content-Type': 'text/plain'},
+          body: JSON.stringify(_emailBody)
         })
-        .catch(function(){ cbErr('Sin conexión'); });
-      }).catch(function(){ cbErr('Error de autenticación'); });
+        .then(function(r){ return r.text(); })
+        .then(function(t){ var d; try{d=JSON.parse(t);}catch(e){d={ok:true};} cb(d); })
+        .catch(function(){ cbErr('Sin conexión para enviar email'); });
+      }, function(motivo) { cbErr(motivo); });
       break;
     }
 
